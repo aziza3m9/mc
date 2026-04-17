@@ -1030,11 +1030,6 @@ function bindEvents() {
   });
 
   document.getElementById("new-case-btn").addEventListener("click", createCase);
-  document.getElementById("export-all-btn").addEventListener("click", exportAll);
-  document.getElementById("import-all").addEventListener("change", (e) => {
-    if (e.target.files[0]) importAll(e.target.files[0]);
-    e.target.value = "";
-  });
 
   const search = document.getElementById("case-search");
   if (search) {
