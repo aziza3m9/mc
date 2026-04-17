@@ -53,6 +53,9 @@ function load() {
     if (!c.status) c.status = "coding";
     if (typeof c.assignee !== "string") c.assignee = "";
   }
+  for (const e of state.timesheet) {
+    if (typeof e.employee !== "string") e.employee = "";
+  }
   if (!state.caseStatusFilter) state.caseStatusFilter = "all";
 }
 
@@ -223,7 +226,8 @@ function removeCpt(id) {
 function clockIn() {
   if (state.activeTimer) return;
   const caseId = document.getElementById("timer-case").value;
-  state.activeTimer = { startedAt: Date.now(), caseId };
+  const employee = document.getElementById("timer-employee").value.trim();
+  state.activeTimer = { startedAt: Date.now(), caseId, employee };
   save();
   renderTimesheet();
   renderNavBadges();
@@ -241,6 +245,7 @@ function clockOut() {
       date: new Date(t.startedAt).toISOString().slice(0, 10),
       hours,
       caseId: t.caseId || "",
+      employee: t.employee || "",
     });
   }
   state.activeTimer = null;
@@ -293,7 +298,7 @@ function formatDuration(ms) {
 
 function addManualEntry() {
   const today = new Date().toISOString().slice(0, 10);
-  state.timesheet.unshift({ id: uid(), date: today, hours: 0, caseId: "" });
+  state.timesheet.unshift({ id: uid(), date: today, hours: 0, caseId: "", employee: "" });
   save();
   renderTimesheet();
 }
@@ -702,7 +707,9 @@ function renderTimesheet() {
   populateCaseSelect("timer-case");
   const t = state.activeTimer;
   const caseEl = document.getElementById("timer-case");
+  const empEl = document.getElementById("timer-employee");
   if (caseEl) { caseEl.value = t ? (t.caseId || "") : caseEl.value; caseEl.disabled = !!t; }
+  if (empEl)  { empEl.value  = t ? (t.employee || "") : empEl.value;  empEl.disabled = !!t;  }
   updateTimerDisplay();
   if (t && !timerInterval) startTimerLoop();
 
@@ -740,7 +747,7 @@ function renderEntriesTable() {
   const tbody = document.querySelector("#entries-table tbody");
   tbody.innerHTML = "";
   if (!state.timesheet.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No time entries yet. Clock in above or add manually.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No time entries yet. Clock in above or add manually.</td></tr>';
     return;
   }
   for (const r of state.timesheet) {
@@ -752,6 +759,7 @@ function renderEntriesTable() {
       <td><input data-f="date" type="date" value="${escapeAttr(r.date)}" /></td>
       <td><input data-f="hours" type="number" min="0" step="0.25" value="${r.hours}" /></td>
       <td><select data-f="caseId">${caseOptions}</select></td>
+      <td><input data-f="employee" value="${escapeAttr(r.employee || "")}" placeholder="Employee" /></td>
       <td><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button></td>`;
     tr.querySelectorAll("input, select").forEach((inp) => {
       inp.addEventListener("input", (e) => updateEntry(r.id, e.target.dataset.f, e.target.value));
@@ -972,6 +980,15 @@ function bindEvents() {
     const c = getActive();
     if (c) deleteCase(c.id);
   });
+
+  const timerCase = document.getElementById("timer-case");
+  if (timerCase) {
+    timerCase.addEventListener("change", () => {
+      const emp = document.getElementById("timer-employee");
+      const c = state.cases.find((x) => x.id === timerCase.value);
+      if (emp && !emp.value.trim() && c && c.assignee) emp.value = c.assignee;
+    });
+  }
 
   document.getElementById("clock-btn").addEventListener("click", () => {
     if (state.activeTimer) clockOut();
