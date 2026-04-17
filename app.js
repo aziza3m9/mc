@@ -3,9 +3,16 @@ const STORAGE_KEY = "mc_dashboard_v2";
 const state = {
   cases: [],
   activeId: null,
-  timesheet: [],   // {id, date, hours, task, caseId}
-  activeTimer: null, // {startedAt, task, caseId}
+  timesheet: [],   // {id, date, hours, caseId}
+  activeTimer: null, // {startedAt, caseId}
   caseSearch: "",
+  caseStatusFilter: "all", // all | coding | review | complete
+};
+
+const STATUS_META = {
+  coding:   { label: "Coding",    tone: "amber"   },
+  review:   { label: "In Review", tone: "emerald" },
+  complete: { label: "Complete",  tone: "mute"    },
 };
 
 let timerInterval = null;
@@ -41,6 +48,12 @@ function load() {
     }
   } catch (e) { console.warn("Failed to load", e); }
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
+  // Backfill new case fields on previously-stored data.
+  for (const c of state.cases) {
+    if (!c.status) c.status = "coding";
+    if (typeof c.assignee !== "string") c.assignee = "";
+  }
+  if (!state.caseStatusFilter) state.caseStatusFilter = "all";
 }
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -61,6 +74,8 @@ function createCase() {
     createdAt: new Date().toISOString(),
     patient: { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" },
     opDocs: [], dxDocs: [], cpts: [],
+    status: "coding",
+    assignee: "",
   };
   state.cases.unshift(c);
   state.activeId = c.id;
@@ -94,6 +109,15 @@ function fileToDataURL(file) {
   });
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
 async function imagesToPdfDataUrl(files) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
@@ -117,7 +141,10 @@ async function imagesToPdfDataUrl(files) {
     try { doc.addImage(dataUrl, fmt, x, y, w, h); }
     catch (e) { console.warn("Could not embed image", file.name, e); }
   }
-  return doc.output("datauristring");
+  // Use FileReader on the Blob output — gives a clean
+  // "data:application/pdf;base64,..." with no filename= param that
+  // previously confused the parser and the browser.
+  return blobToDataUrl(doc.output("blob"));
 }
 
 async function addDocs(kind, fileList) {
@@ -195,9 +222,8 @@ function removeCpt(id) {
 ================================================================= */
 function clockIn() {
   if (state.activeTimer) return;
-  const task = document.getElementById("timer-task").value.trim();
   const caseId = document.getElementById("timer-case").value;
-  state.activeTimer = { startedAt: Date.now(), task, caseId };
+  state.activeTimer = { startedAt: Date.now(), caseId };
   save();
   renderTimesheet();
   renderNavBadges();
@@ -214,7 +240,6 @@ function clockOut() {
       id: uid(),
       date: new Date(t.startedAt).toISOString().slice(0, 10),
       hours,
-      task: t.task,
       caseId: t.caseId || "",
     });
   }
@@ -268,7 +293,7 @@ function formatDuration(ms) {
 
 function addManualEntry() {
   const today = new Date().toISOString().slice(0, 10);
-  state.timesheet.unshift({ id: uid(), date: today, hours: 0, task: "", caseId: "" });
+  state.timesheet.unshift({ id: uid(), date: today, hours: 0, caseId: "" });
   save();
   renderTimesheet();
 }
@@ -363,7 +388,6 @@ function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
   document.getElementById("kpi-hours-today").textContent = sumHours(filterEntriesSince(startOfToday())).toFixed(2);
   document.getElementById("kpi-hours-week").textContent = sumHours(filterEntriesSince(startOfWeek())).toFixed(2);
-  document.getElementById("kpi-cpts").textContent = state.cases.reduce((s, c) => s + c.cpts.length, 0);
 
   const recentCases = document.getElementById("recent-cases");
   recentCases.innerHTML = "";
@@ -372,11 +396,13 @@ function renderOverview() {
     recentCases.innerHTML = '<li class="empty">No cases yet.</li>';
   } else {
     for (const c of list) {
+      const meta = STATUS_META[c.status] || STATUS_META.coding;
+      const assignee = c.assignee ? ` · ${escapeHtml(c.assignee)}` : "";
       const li = document.createElement("li");
       li.innerHTML = `
         <div>
-          <div>${escapeHtml(caseLabel(c))}</div>
-          <div class="muted">${escapeHtml(c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10))} · ${c.cpts.length} CPT</div>
+          <div>${escapeHtml(caseLabel(c))} <span class="status-pill ${meta.tone}">${meta.label}</span></div>
+          <div class="muted">${escapeHtml(c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10))}${assignee}</div>
         </div>
         <a href="#case/${c.id}" class="btn ghost sm">Open</a>`;
       recentCases.appendChild(li);
@@ -394,8 +420,8 @@ function renderOverview() {
       const li = document.createElement("li");
       li.innerHTML = `
         <div>
-          <div>${escapeHtml(e.task || "(no task)")}</div>
-          <div class="muted">${escapeHtml(e.date)}${c ? " · " + escapeHtml(caseLabel(c)) : ""}</div>
+          <div>${escapeHtml(c ? caseLabel(c) : "Unassigned")}</div>
+          <div class="muted">${escapeHtml(e.date)}</div>
         </div>
         <div><strong>${Number(e.hours).toFixed(2)}h</strong></div>`;
       recentEntries.appendChild(li);
@@ -404,40 +430,82 @@ function renderOverview() {
 }
 
 /* ---------- Cases index (gallery) ---------- */
+function renderStatusFilterTabs() {
+  const tabs = document.getElementById("status-filter");
+  if (!tabs) return;
+  const counts = {
+    all: state.cases.length,
+    coding: state.cases.filter((c) => (c.status || "coding") === "coding").length,
+    review: state.cases.filter((c) => c.status === "review").length,
+    complete: state.cases.filter((c) => c.status === "complete").length,
+  };
+  const defs = [
+    { key: "all", label: "All" },
+    { key: "coding", label: "Coding" },
+    { key: "review", label: "In Review" },
+    { key: "complete", label: "Complete" },
+  ];
+  tabs.innerHTML = "";
+  for (const d of defs) {
+    const btn = document.createElement("button");
+    btn.className = "status-tab" + (state.caseStatusFilter === d.key ? " active" : "");
+    btn.dataset.status = d.key;
+    btn.innerHTML = `<span>${d.label}</span><span class="status-tab-count">${counts[d.key]}</span>`;
+    btn.addEventListener("click", () => {
+      state.caseStatusFilter = d.key;
+      save();
+      renderCasesIndex();
+    });
+    tabs.appendChild(btn);
+  }
+}
+
 function renderCasesIndex() {
+  renderStatusFilterTabs();
+
   const grid = document.getElementById("case-grid");
   const countEl = document.getElementById("cases-count");
   if (!grid) return;
   grid.innerHTML = "";
 
   const q = (state.caseSearch || "").toLowerCase();
+  const filter = state.caseStatusFilter || "all";
   const cases = state.cases.filter((c) => {
+    const status = c.status || "coding";
+    if (filter !== "all" && status !== filter) return false;
     if (!q) return true;
-    const hay = `${c.patient.name} ${c.patient.mrn} ${c.patient.provider} ${c.patient.facility}`.toLowerCase();
+    const hay = `${c.patient.name} ${c.patient.mrn} ${c.patient.provider} ${c.patient.facility} ${c.assignee || ""}`.toLowerCase();
     return hay.includes(q);
   });
 
   if (countEl) {
     const total = state.cases.length;
     const shown = cases.length;
-    countEl.textContent = q ? `${shown} of ${total} cases` : `${total} ${total === 1 ? "case" : "cases"}`;
+    const scoped = filter !== "all" || q;
+    countEl.textContent = scoped
+      ? `${shown} of ${total} cases`
+      : `${total} ${total === 1 ? "case" : "cases"}`;
   }
 
   if (!cases.length) {
-    grid.innerHTML = `<div class="case-grid-empty">${
-      state.cases.length
-        ? "No cases match your search."
-        : 'Your library is empty. Click <strong>New Case</strong> to begin.'
-    }</div>`;
+    const msg = state.cases.length
+      ? (filter !== "all" || q ? "No cases match your filters." : "")
+      : 'Your library is empty. Click <strong>New Case</strong> to begin.';
+    grid.innerHTML = `<div class="case-grid-empty">${msg || "No cases match your filters."}</div>`;
     return;
   }
 
   for (const c of cases) {
+    const status = c.status || "coding";
+    const meta = STATUS_META[status] || STATUS_META.coding;
     const name = caseLabel(c);
     const dos = c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10);
-    const meta = [c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
+    const info = [c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
       .filter(Boolean)
       .join(" · ") || "No patient info yet";
+    const assignee = c.assignee
+      ? `<span class="case-assignee"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escapeHtml(c.assignee)}</span>`
+      : `<span class="case-assignee unassigned">Unassigned</span>`;
 
     const card = document.createElement("a");
     card.className = "case-card";
@@ -445,9 +513,13 @@ function renderCasesIndex() {
     card.innerHTML = `
       <div class="case-card-head">
         <div class="case-card-name">${escapeHtml(name)}</div>
-        <div class="case-card-date">${escapeHtml(dos)}</div>
+        <span class="status-pill ${meta.tone}">${meta.label}</span>
       </div>
-      <div class="case-card-meta">${escapeHtml(meta)}</div>
+      <div class="case-card-meta">${escapeHtml(info)}</div>
+      <div class="case-card-footer">
+        ${assignee}
+        <span class="case-card-date">${escapeHtml(dos)}</span>
+      </div>
       <div class="case-card-stats">
         <span class="case-stat">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/><path d="M9 11V7a3 3 0 0 1 6 0v4"/></svg>
@@ -473,7 +545,20 @@ function renderCaseDetail() {
   if (c.patient.provider) subParts.push(c.patient.provider);
   document.getElementById("case-subtitle").textContent = subParts.length ? subParts.join(" · ") : "Fill in patient info below.";
 
+  // Status badge in header
+  const badge = document.getElementById("case-status-badge");
+  if (badge) {
+    const meta = STATUS_META[c.status] || STATUS_META.coding;
+    badge.className = `status-pill ${meta.tone}`;
+    badge.textContent = meta.label;
+  }
+
   document.querySelectorAll("[data-field]").forEach((el) => { el.value = c.patient[el.dataset.field] || ""; });
+  const statusEl = document.getElementById("case-status");
+  if (statusEl) statusEl.value = c.status || "coding";
+  const assigneeEl = document.getElementById("case-assignee");
+  if (assigneeEl) assigneeEl.value = c.assignee || "";
+
   renderDocList("op-list", c.opDocs, "op");
   renderDocList("dx-list", c.dxDocs, "dx");
   renderCptTable(c);
@@ -492,9 +577,98 @@ function renderDocList(id, docs, kind) {
       ? `<img src="${d.dataUrl}" alt="" />`
       : `<div class="doc-thumb-pdf">PDF</div>`;
     const size = d.size ? ` · ${(d.size / 1024).toFixed(0)} KB` : "";
-    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
-    li.querySelector(".btn.icon").addEventListener("click", () => removeDoc(kind, d.id));
+    li.title = "Click to open";
+    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><span class="doc-open-hint">Open</span><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
+    li.addEventListener("click", (e) => {
+      if (e.target.closest(".btn")) return;
+      openDoc(d);
+    });
+    li.querySelector(".btn.icon").addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeDoc(kind, d.id);
+    });
     ul.appendChild(li);
+  }
+}
+
+let currentViewerBlobUrl = null;
+
+function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return null;
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx < 0) return null;
+  const meta = dataUrl.slice(5, commaIdx); // everything between "data:" and the comma
+  const data = dataUrl.slice(commaIdx + 1);
+  const parts = meta.split(";");
+  const mime = parts[0] || "application/octet-stream";
+  const isBase64 = parts.some((p) => p.toLowerCase() === "base64");
+  try {
+    const bytes = isBase64 ? atob(data) : decodeURIComponent(data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  } catch (e) {
+    console.warn("dataUrlToBlob failed", e);
+    return null;
+  }
+}
+
+function openDoc(d) {
+  const viewer = document.getElementById("doc-viewer");
+  const title = document.getElementById("doc-viewer-title");
+  const body = document.getElementById("doc-viewer-body");
+  const dl = document.getElementById("doc-viewer-download");
+  if (!viewer || !body) return;
+
+  // Release any URL from a previous open
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
+  }
+
+  title.textContent = d.name || "Document";
+  body.innerHTML = "";
+
+  const blob = dataUrlToBlob(d.dataUrl);
+  const blobUrl = blob ? URL.createObjectURL(blob) : d.dataUrl;
+  currentViewerBlobUrl = blob ? blobUrl : null;
+
+  dl.href = blobUrl;
+  dl.download = d.name || "document";
+
+  if (d.type && d.type.startsWith("image/")) {
+    const img = document.createElement("img");
+    img.src = blobUrl;
+    img.alt = d.name || "";
+    body.appendChild(img);
+  } else {
+    const obj = document.createElement("object");
+    obj.data = blobUrl;
+    obj.type = d.type || "application/pdf";
+    obj.setAttribute("width", "100%");
+    obj.setAttribute("height", "100%");
+    const fallback = document.createElement("div");
+    fallback.className = "doc-viewer-fallback";
+    fallback.innerHTML = `
+      <p>Your browser can't render this PDF inline.</p>
+      <a class="btn gold sm" href="${blobUrl}" target="_blank" rel="noopener">Open in new tab</a>`;
+    obj.appendChild(fallback);
+    body.appendChild(obj);
+  }
+
+  viewer.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeDoc() {
+  const viewer = document.getElementById("doc-viewer");
+  if (!viewer) return;
+  viewer.hidden = true;
+  document.getElementById("doc-viewer-body").innerHTML = "";
+  document.body.style.overflow = "";
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
   }
 }
 
@@ -527,9 +701,7 @@ function renderCptTable(c) {
 function renderTimesheet() {
   populateCaseSelect("timer-case");
   const t = state.activeTimer;
-  const taskEl = document.getElementById("timer-task");
   const caseEl = document.getElementById("timer-case");
-  if (taskEl) { taskEl.value = t ? t.task : taskEl.value; taskEl.disabled = !!t; }
   if (caseEl) { caseEl.value = t ? (t.caseId || "") : caseEl.value; caseEl.disabled = !!t; }
   updateTimerDisplay();
   if (t && !timerInterval) startTimerLoop();
@@ -568,7 +740,7 @@ function renderEntriesTable() {
   const tbody = document.querySelector("#entries-table tbody");
   tbody.innerHTML = "";
   if (!state.timesheet.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No time entries yet. Clock in above or add manually.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No time entries yet. Clock in above or add manually.</td></tr>';
     return;
   }
   for (const r of state.timesheet) {
@@ -579,7 +751,6 @@ function renderEntriesTable() {
     tr.innerHTML = `
       <td><input data-f="date" type="date" value="${escapeAttr(r.date)}" /></td>
       <td><input data-f="hours" type="number" min="0" step="0.25" value="${r.hours}" /></td>
-      <td><input data-f="task" value="${escapeAttr(r.task)}" placeholder="Task / notes" /></td>
       <td><select data-f="caseId">${caseOptions}</select></td>
       <td><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button></td>`;
     tr.querySelectorAll("input, select").forEach((inp) => {
@@ -660,7 +831,7 @@ async function buildPdf() {
     doc.setFont("helvetica", "normal");
     const totalH = sumHours(caseEntries);
     caseEntries.forEach((e) => {
-      const line = `${e.date}  ${Number(e.hours).toFixed(2)}h  ${e.task || ""}`;
+      const line = `${e.date}  ${Number(e.hours).toFixed(2)}h`;
       const wrap = doc.splitTextToSize(line, pageW - margin * 2);
       if (y + wrap.length * 14 > pageH - margin) { doc.addPage(); y = margin; }
       doc.text(wrap, margin, y); y += wrap.length * 14;
@@ -764,13 +935,37 @@ function bindEvents() {
     });
   });
 
+  const statusSel = document.getElementById("case-status");
+  if (statusSel) {
+    statusSel.addEventListener("change", () => {
+      const c = getActive();
+      if (!c) return;
+      c.status = statusSel.value;
+      save();
+      const badge = document.getElementById("case-status-badge");
+      if (badge) {
+        const meta = STATUS_META[c.status] || STATUS_META.coding;
+        badge.className = `status-pill ${meta.tone}`;
+        badge.textContent = meta.label;
+      }
+    });
+  }
+  const assigneeInput = document.getElementById("case-assignee");
+  if (assigneeInput) {
+    assigneeInput.addEventListener("input", () => {
+      const c = getActive();
+      if (!c) return;
+      c.assignee = assigneeInput.value;
+      save();
+    });
+  }
+
   document.getElementById("upload-op").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("op", e.target.files); e.target.value = "";
   });
   document.getElementById("upload-dx").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("dx", e.target.files); e.target.value = "";
   });
-  document.getElementById("build-pdf-btn").addEventListener("click", buildPdf);
 
   document.getElementById("add-cpt-btn").addEventListener("click", addCpt);
   document.getElementById("delete-case-btn").addEventListener("click", () => {
@@ -783,6 +978,13 @@ function bindEvents() {
     else clockIn();
   });
   document.getElementById("add-entry-btn").addEventListener("click", addManualEntry);
+
+  document.querySelectorAll("#doc-viewer [data-close]").forEach((el) => {
+    el.addEventListener("click", closeDoc);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("doc-viewer").hidden) closeDoc();
+  });
 }
 
 /* =================================================================
