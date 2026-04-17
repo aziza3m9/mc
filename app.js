@@ -6,7 +6,17 @@ const state = {
   timesheet: [],   // {id, date, hours, task, caseId}
   activeTimer: null, // {startedAt, task, caseId}
   caseSearch: "",
+  caseStatusFilter: "",
 };
+
+const STATUS_META = {
+  new:     { label: "New",     tone: "slate"  },
+  active:  { label: "Active",  tone: "sky"    },
+  coding:  { label: "Coding",  tone: "violet" },
+  review:  { label: "Review",  tone: "amber"  },
+  closed:  { label: "Closed",  tone: "green"  },
+};
+const STATUS_ORDER = ["new", "active", "coding", "review", "closed"];
 
 let timerInterval = null;
 
@@ -41,6 +51,9 @@ function load() {
     }
   } catch (e) { console.warn("Failed to load", e); }
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
+  for (const c of state.cases) {
+    if (!c.status || !STATUS_META[c.status]) c.status = "new";
+  }
 }
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -55,11 +68,20 @@ function escapeAttr(s) { return escapeHtml(s); }
 ================================================================= */
 function getActive() { return state.cases.find((c) => c.id === state.activeId) || null; }
 
-function createCase() {
+function createCase(seed = {}) {
   const c = {
     id: uid(),
     createdAt: new Date().toISOString(),
-    patient: { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" },
+    status: seed.status || "new",
+    patient: {
+      name: seed.name || "",
+      dob: "",
+      mrn: seed.mrn || "",
+      dos: seed.dos || "",
+      provider: seed.provider || "",
+      facility: "",
+      notes: "",
+    },
     opDocs: [], dxDocs: [], cpts: [],
   };
   state.cases.unshift(c);
@@ -67,6 +89,34 @@ function createCase() {
   save();
   navigate("cases");
   render();
+  return c;
+}
+
+function quickAddLead() {
+  const name = document.getElementById("lead-name").value.trim();
+  const mrn = document.getElementById("lead-mrn").value.trim();
+  const dos = document.getElementById("lead-dos").value;
+  const provider = document.getElementById("lead-provider").value.trim();
+  const status = document.getElementById("lead-status").value || "new";
+  if (!name && !mrn) {
+    alert("Enter at least a patient name or MRN to add a lead.");
+    return;
+  }
+  createCase({ name, mrn, dos, provider, status });
+  document.getElementById("lead-name").value = "";
+  document.getElementById("lead-mrn").value = "";
+  document.getElementById("lead-dos").value = "";
+  document.getElementById("lead-provider").value = "";
+  document.getElementById("lead-status").value = "new";
+}
+
+function setCaseStatus(id, status) {
+  const c = state.cases.find((x) => x.id === id);
+  if (!c) return;
+  c.status = STATUS_META[status] ? status : "new";
+  save();
+  renderCaseList();
+  renderPipeline();
 }
 
 function deleteCase(id) {
@@ -336,8 +386,37 @@ function renderOverview() {
 
 /* ---------- Cases page ---------- */
 function renderCasesPage() {
+  renderPipeline();
   renderCaseList();
   renderCaseDetail();
+}
+
+function renderPipeline() {
+  const wrap = document.getElementById("pipeline-summary");
+  if (!wrap) return;
+  const counts = { new: 0, active: 0, coding: 0, review: 0, closed: 0 };
+  for (const c of state.cases) {
+    const s = STATUS_META[c.status] ? c.status : "new";
+    counts[s]++;
+  }
+  wrap.innerHTML = STATUS_ORDER.map((s) => {
+    const meta = STATUS_META[s];
+    const isActive = state.caseStatusFilter === s;
+    return `<button class="pipeline-pill tone-${meta.tone}${isActive ? " active" : ""}" data-status="${s}">
+      <span class="pipeline-label">${meta.label}</span>
+      <span class="pipeline-count">${counts[s]}</span>
+    </button>`;
+  }).join("");
+  wrap.querySelectorAll(".pipeline-pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const s = btn.dataset.status;
+      state.caseStatusFilter = state.caseStatusFilter === s ? "" : s;
+      const filterSel = document.getElementById("case-status-filter");
+      if (filterSel) filterSel.value = state.caseStatusFilter;
+      renderPipeline();
+      renderCaseList();
+    });
+  });
 }
 
 function renderCaseList() {
@@ -345,13 +424,15 @@ function renderCaseList() {
   if (!ul) return;
   ul.innerHTML = "";
   const q = (state.caseSearch || "").toLowerCase();
+  const statusFilter = state.caseStatusFilter || "";
   const cases = state.cases.filter((c) => {
+    if (statusFilter && (c.status || "new") !== statusFilter) return false;
     if (!q) return true;
     const hay = `${c.patient.name} ${c.patient.mrn} ${c.patient.provider} ${c.patient.facility}`.toLowerCase();
     return hay.includes(q);
   });
   if (!cases.length) {
-    ul.innerHTML = `<li class="empty">${state.cases.length ? "No cases match your search." : "No cases yet. Click \"New Case\"."}</li>`;
+    ul.innerHTML = `<li class="empty">${state.cases.length ? "No leads match your filters." : "No leads yet. Use Quick add above."}</li>`;
     return;
   }
   for (const c of cases) {
@@ -359,7 +440,19 @@ function renderCaseList() {
     if (c.id === state.activeId) li.classList.add("active");
     const name = caseLabel(c);
     const dos = c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10);
-    li.innerHTML = `<div class="case-name">${escapeHtml(name)}</div><div class="case-sub">${escapeHtml(dos)} · ${c.cpts.length} CPT · ${c.opDocs.length + c.dxDocs.length} docs</div>`;
+    const status = STATUS_META[c.status] ? c.status : "new";
+    const meta = STATUS_META[status];
+    const subBits = [dos];
+    if (c.patient.mrn) subBits.push(`MRN ${escapeHtml(c.patient.mrn)}`);
+    subBits.push(`${c.cpts.length} CPT`);
+    subBits.push(`${c.opDocs.length + c.dxDocs.length} docs`);
+    li.innerHTML = `
+      <div class="case-row-head">
+        <div class="case-name">${escapeHtml(name)}</div>
+        <span class="status-badge tone-${meta.tone}">${meta.label}</span>
+      </div>
+      <div class="case-sub">${subBits.join(" · ")}</div>
+      ${c.patient.provider ? `<div class="case-sub muted-soft">${escapeHtml(c.patient.provider)}</div>` : ""}`;
     li.addEventListener("click", () => { state.activeId = c.id; save(); render(); });
     ul.appendChild(li);
   }
@@ -383,6 +476,12 @@ function renderCaseDetail() {
   if (c.patient.dos) subParts.push(`DOS ${c.patient.dos}`);
   if (c.patient.provider) subParts.push(c.patient.provider);
   document.getElementById("case-subtitle").textContent = subParts.length ? subParts.join(" · ") : "Fill in patient info below.";
+
+  const statusSel = document.getElementById("case-status-select");
+  if (statusSel) {
+    statusSel.value = STATUS_META[c.status] ? c.status : "new";
+    statusSel.dataset.tone = STATUS_META[statusSel.value].tone;
+  }
 
   document.querySelectorAll("[data-field]").forEach((el) => { el.value = c.patient[el.dataset.field] || ""; });
   renderDocList("op-list", c.opDocs, "op");
@@ -517,6 +616,7 @@ function getImageDimensions(dataUrl) {
 async function buildPdf() {
   const c = getActive();
   if (!c) return;
+  showPdfModalLoading(caseLabel(c));
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();
@@ -603,7 +703,79 @@ async function buildPdf() {
 
   const safeName = (p.name || "case").replace(/[^a-z0-9]+/gi, "_");
   const safeDos = (p.dos || new Date().toISOString().slice(0, 10));
-  doc.save(`${safeName}_${safeDos}.pdf`);
+  const filename = `${safeName}_${safeDos}.pdf`;
+  openPdfPreview(doc, filename, caseLabel(c));
+}
+
+let currentPdfBlobUrl = null;
+
+function showPdfModalLoading(title) {
+  const modal = document.getElementById("pdf-modal");
+  const frame = document.getElementById("pdf-frame");
+  const titleEl = document.getElementById("pdf-modal-title");
+  const subEl = document.getElementById("pdf-modal-sub");
+  if (!modal) return;
+  titleEl.textContent = title || "Case PDF";
+  subEl.textContent = "Building PDF…";
+  frame.removeAttribute("src");
+  frame.srcdoc = `<!doctype html><html><head><style>
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,sans-serif;background:#f5f7fa;color:#6b7280;}
+    .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;font-size:13px;}
+    .sp{width:28px;height:28px;border:3px solid #e5e7eb;border-top-color:#4f7cff;border-radius:50%;animation:s 0.8s linear infinite;}
+    @keyframes s{to{transform:rotate(360deg);}}
+  </style></head><body><div class="wrap"><div class="sp"></div><div>Building PDF…</div></div></body></html>`;
+  modal.hidden = false;
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function openPdfPreview(doc, filename, title) {
+  const blob = doc.output("blob");
+  if (currentPdfBlobUrl) URL.revokeObjectURL(currentPdfBlobUrl);
+  currentPdfBlobUrl = URL.createObjectURL(blob);
+
+  const modal = document.getElementById("pdf-modal");
+  const frame = document.getElementById("pdf-frame");
+  const titleEl = document.getElementById("pdf-modal-title");
+  const subEl = document.getElementById("pdf-modal-sub");
+  const dlBtn = document.getElementById("pdf-download-btn");
+  const openBtn = document.getElementById("pdf-open-btn");
+
+  titleEl.textContent = title || "Case PDF";
+  subEl.textContent = filename;
+
+  modal.hidden = false;
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+
+  frame.removeAttribute("srcdoc");
+  frame.src = currentPdfBlobUrl + "#toolbar=1&view=FitH";
+
+  dlBtn.onclick = () => {
+    const a = document.createElement("a");
+    a.href = currentPdfBlobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  if (openBtn) {
+    openBtn.onclick = () => window.open(currentPdfBlobUrl, "_blank", "noopener");
+  }
+}
+
+function closePdfPreview() {
+  const modal = document.getElementById("pdf-modal");
+  const frame = document.getElementById("pdf-frame");
+  if (!modal) return;
+  modal.hidden = true;
+  modal.setAttribute("aria-hidden", "true");
+  frame.src = "about:blank";
+  document.body.classList.remove("modal-open");
+  if (currentPdfBlobUrl) {
+    URL.revokeObjectURL(currentPdfBlobUrl);
+    currentPdfBlobUrl = null;
+  }
 }
 
 /* =================================================================
@@ -652,6 +824,43 @@ function bindEvents() {
     search.value = state.caseSearch || "";
     search.addEventListener("input", (e) => { state.caseSearch = e.target.value; renderCaseList(); });
   }
+
+  const statusFilter = document.getElementById("case-status-filter");
+  if (statusFilter) {
+    statusFilter.value = state.caseStatusFilter || "";
+    statusFilter.addEventListener("change", (e) => {
+      state.caseStatusFilter = e.target.value;
+      renderPipeline();
+      renderCaseList();
+    });
+  }
+
+  const leadAdd = document.getElementById("lead-add-btn");
+  if (leadAdd) leadAdd.addEventListener("click", quickAddLead);
+  ["lead-name", "lead-mrn", "lead-provider"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("keydown", (e) => { if (e.key === "Enter") quickAddLead(); });
+  });
+
+  const caseStatusSel = document.getElementById("case-status-select");
+  if (caseStatusSel) {
+    caseStatusSel.addEventListener("change", (e) => {
+      const c = getActive();
+      if (!c) return;
+      setCaseStatus(c.id, e.target.value);
+      caseStatusSel.dataset.tone = STATUS_META[e.target.value].tone;
+    });
+  }
+
+  document.querySelectorAll("[data-close-modal]").forEach((el) => {
+    el.addEventListener("click", closePdfPreview);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const modal = document.getElementById("pdf-modal");
+      if (modal && !modal.hidden) closePdfPreview();
+    }
+  });
 
   document.querySelectorAll("[data-field]").forEach((el) => {
     el.addEventListener("input", () => {

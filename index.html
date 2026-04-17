@@ -123,8 +123,36 @@
 
       <div class="cases-layout">
         <aside class="cases-list-panel">
+          <div class="lead-quick-add">
+            <div class="lead-quick-add-title">Quick add lead</div>
+            <div class="lead-quick-add-grid">
+              <input type="text" id="lead-name" placeholder="Patient name" />
+              <input type="text" id="lead-mrn" placeholder="MRN" />
+              <input type="date" id="lead-dos" />
+              <input type="text" id="lead-provider" placeholder="Provider" />
+              <select id="lead-status">
+                <option value="new">New lead</option>
+                <option value="active">Active</option>
+                <option value="coding">Coding</option>
+                <option value="review">Review</option>
+                <option value="closed">Closed</option>
+              </select>
+              <button id="lead-add-btn" class="btn primary sm">Add to cases</button>
+            </div>
+          </div>
+
+          <div class="pipeline-summary" id="pipeline-summary"></div>
+
           <div class="search-row">
-            <input type="text" id="case-search" placeholder="Search cases…" />
+            <input type="text" id="case-search" placeholder="Search leads…" />
+            <select id="case-status-filter">
+              <option value="">All statuses</option>
+              <option value="new">New</option>
+              <option value="active">Active</option>
+              <option value="coding">Coding</option>
+              <option value="review">Review</option>
+              <option value="closed">Closed</option>
+            </select>
           </div>
           <ul id="case-list" class="case-list"></ul>
         </aside>
@@ -143,6 +171,13 @@
                 <div class="page-sub" id="case-subtitle">—</div>
               </div>
               <div class="page-actions">
+                <select id="case-status-select" class="status-select" title="Case status">
+                  <option value="new">New</option>
+                  <option value="active">Active</option>
+                  <option value="coding">Coding</option>
+                  <option value="review">Review</option>
+                  <option value="closed">Closed</option>
+                </select>
                 <button id="build-pdf-btn" class="btn primary">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                   Build Case PDF
@@ -306,6 +341,33 @@
     </section>
 
   </main>
+</div>
+
+<!-- In-app PDF viewer modal -->
+<div id="pdf-modal" class="modal" hidden aria-hidden="true">
+  <div class="modal-backdrop" data-close-modal></div>
+  <div class="modal-panel">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="pdf-modal-title">Case PDF</div>
+        <div class="modal-sub" id="pdf-modal-sub">Preview</div>
+      </div>
+      <div class="modal-actions">
+        <button id="pdf-open-btn" class="btn sm" title="Open in new tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open
+        </button>
+        <button id="pdf-download-btn" class="btn sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download
+        </button>
+        <button class="btn ghost sm" data-close-modal>Close</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <iframe id="pdf-frame" title="Case PDF"></iframe>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
