@@ -94,13 +94,64 @@ function fileToDataURL(file) {
   });
 }
 
+async function imagesToPdfDataUrl(files) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 24;
+  let first = true;
+  for (const file of files) {
+    const dataUrl = await fileToDataURL(file);
+    const dims = await getImageDimensions(dataUrl);
+    if (!first) doc.addPage();
+    first = false;
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+    const ratio = Math.min(maxW / dims.w, maxH / dims.h);
+    const w = dims.w * ratio;
+    const h = dims.h * ratio;
+    const x = (pageW - w) / 2;
+    const y = (pageH - h) / 2;
+    const fmt = file.type.includes("png") ? "PNG" : "JPEG";
+    try { doc.addImage(dataUrl, fmt, x, y, w, h); }
+    catch (e) { console.warn("Could not embed image", file.name, e); }
+  }
+  return doc.output("datauristring");
+}
+
 async function addDocs(kind, fileList) {
   const c = getActive();
   if (!c) return;
   const target = kind === "op" ? c.opDocs : c.dxDocs;
-  for (const file of fileList) {
-    const dataUrl = await fileToDataURL(file);
-    target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+  const files = Array.from(fileList);
+
+  if (kind === "op") {
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    const others = files.filter((f) => !f.type.startsWith("image/"));
+
+    if (images.length) {
+      const dataUrl = await imagesToPdfDataUrl(images);
+      const base = images.length === 1
+        ? images[0].name.replace(/\.[^.]+$/, "")
+        : `operative-report-${new Date().toISOString().slice(0, 10)}`;
+      target.push({
+        id: uid(),
+        name: `${base}.pdf`,
+        type: "application/pdf",
+        size: Math.floor((dataUrl.length - "data:application/pdf;base64,".length) * 3 / 4),
+        dataUrl,
+      });
+    }
+    for (const file of others) {
+      const dataUrl = await fileToDataURL(file);
+      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+    }
+  } else {
+    for (const file of files) {
+      const dataUrl = await fileToDataURL(file);
+      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+    }
   }
   save();
   render();
