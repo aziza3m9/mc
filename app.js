@@ -40,7 +40,19 @@ function load() {
       }
     }
   } catch (e) { console.warn("Failed to load", e); }
+  if (!Array.isArray(state.cases)) state.cases = [];
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
+  if (typeof state.caseSearch !== "string") state.caseSearch = "";
+  for (const c of state.cases) {
+    if (!c.patient || typeof c.patient !== "object") {
+      c.patient = { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" };
+    }
+    if (!Array.isArray(c.opDocs)) c.opDocs = [];
+    if (!Array.isArray(c.dxDocs)) c.dxDocs = [];
+    if (!Array.isArray(c.cpts)) c.cpts = [];
+    if (!c.createdAt) c.createdAt = new Date().toISOString();
+    if (!c.id) c.id = uid();
+  }
 }
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -133,34 +145,33 @@ async function addDocs(kind, fileList) {
   if (!c) return;
   const target = kind === "op" ? c.opDocs : c.dxDocs;
   const files = Array.from(fileList);
+  const images = files.filter((f) => f.type.startsWith("image/"));
+  const rest = files.filter((f) => !f.type.startsWith("image/"));
 
-  if (kind === "op") {
-    const images = files.filter((f) => f.type.startsWith("image/"));
-    const rest = files.filter((f) => !f.type.startsWith("image/"));
-    if (images.length) {
-      const pdfBlob = await imagesToPdfDoc(images);
-      const pdfDataUrl = await blobToDataURL(pdfBlob);
-      const stamp = new Date().toISOString().slice(0, 10);
-      const base = images.length === 1
-        ? images[0].name.replace(/\.[^/.]+$/, "")
-        : `Operative_Report_${stamp}`;
-      target.push({
-        id: uid(),
-        name: `${base}.pdf`,
-        type: "application/pdf",
-        size: pdfBlob.size,
-        dataUrl: pdfDataUrl,
-      });
+  if (images.length) {
+    const pages = [];
+    for (const f of images) {
+      pages.push({ name: f.name, type: f.type, dataUrl: await fileToDataURL(f) });
     }
-    for (const file of rest) {
-      const dataUrl = await fileToDataURL(file);
-      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
-    }
-  } else {
-    for (const file of files) {
-      const dataUrl = await fileToDataURL(file);
-      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
-    }
+    const pdfBlob = await imagesToPdfDoc(images);
+    const pdfDataUrl = await blobToDataURL(pdfBlob);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const label = kind === "op" ? "Operative_Report" : "HP_Note";
+    const base = images.length === 1
+      ? images[0].name.replace(/\.[^/.]+$/, "")
+      : `${label}_${stamp}`;
+    target.push({
+      id: uid(),
+      name: `${base}.pdf`,
+      type: "application/pdf",
+      size: pdfBlob.size,
+      dataUrl: pdfDataUrl,
+      pages,
+    });
+  }
+  for (const file of rest) {
+    const dataUrl = await fileToDataURL(file);
+    target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
   }
   save();
   render();
@@ -643,21 +654,32 @@ async function buildPdf() {
     ...c.opDocs.map((d) => ({ ...d, section: "Operative Report" })),
     ...c.dxDocs.map((d) => ({ ...d, section: "H&P Note" })),
   ];
-  for (const d of allDocs) {
-    if (!d.type.startsWith("image/")) continue;
+  const addImagePage = async (section, name, page) => {
     doc.addPage();
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
-    doc.text(`${d.section}: ${d.name}`, margin, margin);
-    const dims = await getImageDimensions(d.dataUrl);
-    const maxW = pageW - margin * 2;
-    const maxH = pageH - margin * 2 - 20;
-    const ratio = Math.min(maxW / dims.w, maxH / dims.h);
-    const w = dims.w * ratio;
-    const h = dims.h * ratio;
-    const fmt = d.type.includes("png") ? "PNG" : "JPEG";
-    try { doc.addImage(d.dataUrl, fmt, margin, margin + 20, w, h); }
-    catch (e) { doc.text("Could not embed image.", margin, margin + 40); }
+    doc.text(`${section}: ${name}`, margin, margin);
+    try {
+      const dims = await getImageDimensions(page.dataUrl);
+      const maxW = pageW - margin * 2;
+      const maxH = pageH - margin * 2 - 20;
+      const ratio = Math.min(maxW / dims.w, maxH / dims.h);
+      const w = dims.w * ratio;
+      const h = dims.h * ratio;
+      const fmt = (page.type || "").includes("png") ? "PNG" : "JPEG";
+      doc.addImage(page.dataUrl, fmt, margin, margin + 20, w, h);
+    } catch (e) {
+      doc.text("Could not embed image.", margin, margin + 40);
+    }
+  };
+  for (const d of allDocs) {
+    if (d.type.startsWith("image/")) {
+      await addImagePage(d.section, d.name, d);
+    } else if (Array.isArray(d.pages) && d.pages.length) {
+      for (const pg of d.pages) {
+        await addImagePage(d.section, d.name, pg);
+      }
+    }
   }
 
   const safeName = (p.name || "case").replace(/[^a-z0-9]+/gi, "_");
