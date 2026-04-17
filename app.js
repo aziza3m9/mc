@@ -509,16 +509,23 @@ function renderDocList(id, docs, kind) {
 let currentViewerBlobUrl = null;
 
 function dataUrlToBlob(dataUrl) {
-  // Strips any extra params (e.g. ";filename=...") that jsPDF adds before ";base64,"
-  const match = /^data:([^;,]+)(?:;[^,]*)?(;base64)?,(.*)$/.exec(dataUrl);
-  if (!match) return null;
-  const mime = match[1] || "application/octet-stream";
-  const isBase64 = !!match[2];
-  const data = match[3];
-  const bytes = isBase64 ? atob(data) : decodeURIComponent(data);
-  const arr = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-  return new Blob([arr], { type: mime });
+  if (!dataUrl || !dataUrl.startsWith("data:")) return null;
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx < 0) return null;
+  const meta = dataUrl.slice(5, commaIdx); // everything between "data:" and the comma
+  const data = dataUrl.slice(commaIdx + 1);
+  const parts = meta.split(";");
+  const mime = parts[0] || "application/octet-stream";
+  const isBase64 = parts.some((p) => p.toLowerCase() === "base64");
+  try {
+    const bytes = isBase64 ? atob(data) : decodeURIComponent(data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  } catch (e) {
+    console.warn("dataUrlToBlob failed", e);
+    return null;
+  }
 }
 
 function openDoc(d) {
@@ -844,7 +851,6 @@ function bindEvents() {
   document.getElementById("upload-dx").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("dx", e.target.files); e.target.value = "";
   });
-  document.getElementById("build-pdf-btn").addEventListener("click", buildPdf);
 
   document.getElementById("add-cpt-btn").addEventListener("click", addCpt);
   document.getElementById("delete-case-btn").addEventListener("click", () => {
