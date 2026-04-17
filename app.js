@@ -234,9 +234,11 @@ function render() {
 
 function renderCaseList() {
   const ul = document.getElementById("case-list");
+  const countEl = document.getElementById("case-count");
   ul.innerHTML = "";
+  if (countEl) countEl.textContent = state.cases.length;
   if (!state.cases.length) {
-    ul.innerHTML = '<li style="color:var(--muted);cursor:default">No cases yet</li>';
+    ul.innerHTML = '<li class="empty">No cases yet. Click "New Case" to begin.</li>';
     return;
   }
   for (const c of state.cases) {
@@ -262,6 +264,8 @@ function renderActiveCase() {
   view.hidden = false;
   empty.hidden = true;
 
+  renderHeader();
+
   document.querySelectorAll("[data-field]").forEach((el) => {
     const f = el.dataset.field;
     el.value = c.patient[f] || "";
@@ -278,36 +282,43 @@ function renderDocList(id, docs, kind) {
   const ul = document.getElementById(id);
   ul.innerHTML = "";
   if (!docs.length) {
-    ul.innerHTML = '<li style="color:var(--muted)">None uploaded</li>';
+    ul.innerHTML = '<li class="empty">No files uploaded</li>';
     return;
   }
   for (const d of docs) {
     const li = document.createElement("li");
     const thumb = d.type.startsWith("image/")
       ? `<img src="${d.dataUrl}" alt="" />`
-      : `<div style="width:40px;height:40px;background:#475569;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;">PDF</div>`;
-    li.innerHTML = `${thumb}<span class="doc-name">${escapeHtml(d.name)}</span><button class="doc-remove" title="Remove">&times;</button>`;
-    li.querySelector(".doc-remove").addEventListener("click", () => removeDoc(kind, d.id));
+      : `<div class="doc-thumb-pdf">PDF</div>`;
+    const size = d.size ? ` · ${(d.size / 1024).toFixed(0)} KB` : "";
+    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${d.type || "file"}${size}</div></div><button class="btn icon danger-ghost" title="Remove"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>`;
+    li.querySelector(".btn.icon").addEventListener("click", () => removeDoc(kind, d.id));
     ul.appendChild(li);
   }
 }
 
+const trashIcon = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+
 function renderCptTable(c) {
   const tbody = document.querySelector("#cpt-table tbody");
   tbody.innerHTML = "";
+  if (!c.cpts.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No CPT codes yet. Click "Add Code" to start.</td></tr>';
+    return;
+  }
   for (const r of c.cpts) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input data-f="code" value="${escapeAttr(r.code)}" placeholder="e.g. 99213" /></td>
+      <td><input data-f="code" value="${escapeAttr(r.code)}" placeholder="99213" /></td>
       <td><input data-f="description" value="${escapeAttr(r.description)}" placeholder="Description" /></td>
       <td><input data-f="modifiers" value="${escapeAttr(r.modifiers)}" placeholder="-25" /></td>
-      <td><input data-f="units" type="number" min="0" step="1" value="${r.units}" style="width:60px" /></td>
-      <td><button class="row-remove" title="Remove">&times;</button></td>
+      <td><input data-f="units" type="number" min="0" step="1" value="${r.units}" /></td>
+      <td><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button></td>
     `;
     tr.querySelectorAll("input").forEach((inp) => {
       inp.addEventListener("input", (e) => updateCpt(r.id, e.target.dataset.f, e.target.value));
     });
-    tr.querySelector(".row-remove").addEventListener("click", () => removeCpt(r.id));
+    tr.querySelector(".btn.icon").addEventListener("click", () => removeCpt(r.id));
     tbody.appendChild(tr);
   }
 }
@@ -315,19 +326,38 @@ function renderCptTable(c) {
 function renderHoursTable(c) {
   const tbody = document.querySelector("#hours-table tbody");
   tbody.innerHTML = "";
+  if (!c.hours.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No time logged yet. Click "Log Time" to add an entry.</td></tr>';
+    return;
+  }
   for (const r of c.hours) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><input data-f="date" type="date" value="${escapeAttr(r.date)}" /></td>
-      <td><input data-f="hours" type="number" min="0" step="0.25" value="${r.hours}" style="width:80px" /></td>
+      <td><input data-f="hours" type="number" min="0" step="0.25" value="${r.hours}" /></td>
       <td><input data-f="task" value="${escapeAttr(r.task)}" placeholder="Task / notes" /></td>
-      <td><button class="row-remove" title="Remove">&times;</button></td>
+      <td><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button></td>
     `;
     tr.querySelectorAll("input").forEach((inp) => {
       inp.addEventListener("input", (e) => updateHours(r.id, e.target.dataset.f, e.target.value));
     });
-    tr.querySelector(".row-remove").addEventListener("click", () => removeHours(r.id));
+    tr.querySelector(".btn.icon").addEventListener("click", () => removeHours(r.id));
     tbody.appendChild(tr);
+  }
+}
+
+function renderHeader() {
+  const c = getActive();
+  if (!c) return;
+  const titleEl = document.getElementById("case-title");
+  const subEl = document.getElementById("case-subtitle");
+  if (titleEl) titleEl.textContent = c.patient.name || "New Case";
+  if (subEl) {
+    const parts = [];
+    if (c.patient.mrn) parts.push(`MRN ${c.patient.mrn}`);
+    if (c.patient.dos) parts.push(`DOS ${c.patient.dos}`);
+    if (c.patient.provider) parts.push(c.patient.provider);
+    subEl.textContent = parts.length ? parts.join(" · ") : "Fill in patient info below.";
   }
 }
 
@@ -382,7 +412,9 @@ function bindEvents() {
       if (!c) return;
       c.patient[el.dataset.field] = e.target.value;
       save();
-      if (el.dataset.field === "name" || el.dataset.field === "dos") renderCaseList();
+      const f = el.dataset.field;
+      if (f === "name" || f === "dos") renderCaseList();
+      if (f === "name" || f === "mrn" || f === "dos" || f === "provider") renderHeader();
     });
   });
 
