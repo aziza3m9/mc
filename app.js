@@ -94,6 +94,15 @@ function fileToDataURL(file) {
   });
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
 async function imagesToPdfDataUrl(files) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
@@ -117,7 +126,10 @@ async function imagesToPdfDataUrl(files) {
     try { doc.addImage(dataUrl, fmt, x, y, w, h); }
     catch (e) { console.warn("Could not embed image", file.name, e); }
   }
-  return doc.output("datauristring");
+  // Use FileReader on the Blob output — gives a clean
+  // "data:application/pdf;base64,..." with no filename= param that
+  // previously confused the parser and the browser.
+  return blobToDataUrl(doc.output("blob"));
 }
 
 async function addDocs(kind, fileList) {
@@ -492,9 +504,98 @@ function renderDocList(id, docs, kind) {
       ? `<img src="${d.dataUrl}" alt="" />`
       : `<div class="doc-thumb-pdf">PDF</div>`;
     const size = d.size ? ` · ${(d.size / 1024).toFixed(0)} KB` : "";
-    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
-    li.querySelector(".btn.icon").addEventListener("click", () => removeDoc(kind, d.id));
+    li.title = "Click to open";
+    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><span class="doc-open-hint">Open</span><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
+    li.addEventListener("click", (e) => {
+      if (e.target.closest(".btn")) return;
+      openDoc(d);
+    });
+    li.querySelector(".btn.icon").addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeDoc(kind, d.id);
+    });
     ul.appendChild(li);
+  }
+}
+
+let currentViewerBlobUrl = null;
+
+function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return null;
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx < 0) return null;
+  const meta = dataUrl.slice(5, commaIdx); // everything between "data:" and the comma
+  const data = dataUrl.slice(commaIdx + 1);
+  const parts = meta.split(";");
+  const mime = parts[0] || "application/octet-stream";
+  const isBase64 = parts.some((p) => p.toLowerCase() === "base64");
+  try {
+    const bytes = isBase64 ? atob(data) : decodeURIComponent(data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  } catch (e) {
+    console.warn("dataUrlToBlob failed", e);
+    return null;
+  }
+}
+
+function openDoc(d) {
+  const viewer = document.getElementById("doc-viewer");
+  const title = document.getElementById("doc-viewer-title");
+  const body = document.getElementById("doc-viewer-body");
+  const dl = document.getElementById("doc-viewer-download");
+  if (!viewer || !body) return;
+
+  // Release any URL from a previous open
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
+  }
+
+  title.textContent = d.name || "Document";
+  body.innerHTML = "";
+
+  const blob = dataUrlToBlob(d.dataUrl);
+  const blobUrl = blob ? URL.createObjectURL(blob) : d.dataUrl;
+  currentViewerBlobUrl = blob ? blobUrl : null;
+
+  dl.href = blobUrl;
+  dl.download = d.name || "document";
+
+  if (d.type && d.type.startsWith("image/")) {
+    const img = document.createElement("img");
+    img.src = blobUrl;
+    img.alt = d.name || "";
+    body.appendChild(img);
+  } else {
+    const obj = document.createElement("object");
+    obj.data = blobUrl;
+    obj.type = d.type || "application/pdf";
+    obj.setAttribute("width", "100%");
+    obj.setAttribute("height", "100%");
+    const fallback = document.createElement("div");
+    fallback.className = "doc-viewer-fallback";
+    fallback.innerHTML = `
+      <p>Your browser can't render this PDF inline.</p>
+      <a class="btn gold sm" href="${blobUrl}" target="_blank" rel="noopener">Open in new tab</a>`;
+    obj.appendChild(fallback);
+    body.appendChild(obj);
+  }
+
+  viewer.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeDoc() {
+  const viewer = document.getElementById("doc-viewer");
+  if (!viewer) return;
+  viewer.hidden = true;
+  document.getElementById("doc-viewer-body").innerHTML = "";
+  document.body.style.overflow = "";
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
   }
 }
 
@@ -770,7 +871,6 @@ function bindEvents() {
   document.getElementById("upload-dx").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("dx", e.target.files); e.target.value = "";
   });
-  document.getElementById("build-pdf-btn").addEventListener("click", buildPdf);
 
   document.getElementById("add-cpt-btn").addEventListener("click", addCpt);
   document.getElementById("delete-case-btn").addEventListener("click", () => {
@@ -783,6 +883,13 @@ function bindEvents() {
     else clockIn();
   });
   document.getElementById("add-entry-btn").addEventListener("click", addManualEntry);
+
+  document.querySelectorAll("#doc-viewer [data-close]").forEach((el) => {
+    el.addEventListener("click", closeDoc);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("doc-viewer").hidden) closeDoc();
+  });
 }
 
 /* =================================================================
