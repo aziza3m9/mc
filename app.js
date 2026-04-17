@@ -1,4 +1,5 @@
 const STORAGE_KEY = "mc_dashboard_v2";
+const DEFAULT_USER = "Clarence";
 
 const state = {
   cases: [],
@@ -82,7 +83,7 @@ function createCase() {
     patient: { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" },
     opDocs: [], dxDocs: [], cpts: [],
     status: "coding",
-    assignee: "",
+    assignee: DEFAULT_USER,
     dueDate: "",
   };
   state.cases.unshift(c);
@@ -821,7 +822,14 @@ function renderTimesheet() {
   const caseEl = document.getElementById("timer-case");
   const empEl = document.getElementById("timer-employee");
   if (caseEl) { caseEl.value = t ? (t.caseId || "") : caseEl.value; caseEl.disabled = !!t; }
-  if (empEl)  { empEl.value  = t ? (t.employee || "") : empEl.value;  empEl.disabled = !!t;  }
+  if (empEl) {
+    if (t) {
+      empEl.value = t.employee || "";
+    } else if (!empEl.value.trim()) {
+      empEl.value = DEFAULT_USER;
+    }
+    empEl.disabled = !!t;
+  }
   updateTimerDisplay();
   if (t && !timerInterval) startTimerLoop();
   renderCalendar();
