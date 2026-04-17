@@ -95,13 +95,72 @@ function fileToDataURL(file) {
   });
 }
 
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function imagesToPdfDoc(files) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 24;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const dataUrl = await fileToDataURL(file);
+    const dims = await getImageDimensions(dataUrl);
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+    const ratio = Math.min(maxW / dims.w, maxH / dims.h);
+    const w = dims.w * ratio;
+    const h = dims.h * ratio;
+    const x = (pageW - w) / 2;
+    const y = (pageH - h) / 2;
+    const fmt = file.type.includes("png") ? "PNG" : "JPEG";
+    if (i > 0) doc.addPage();
+    try { doc.addImage(dataUrl, fmt, x, y, w, h); } catch (e) { /* skip */ }
+  }
+  return doc.output("blob");
+}
+
 async function addDocs(kind, fileList) {
   const c = getActive();
   if (!c) return;
   const target = kind === "op" ? c.opDocs : c.dxDocs;
-  for (const file of fileList) {
-    const dataUrl = await fileToDataURL(file);
-    target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+  const files = Array.from(fileList);
+
+  if (kind === "op") {
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    const rest = files.filter((f) => !f.type.startsWith("image/"));
+    if (images.length) {
+      const pdfBlob = await imagesToPdfDoc(images);
+      const pdfDataUrl = await blobToDataURL(pdfBlob);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const base = images.length === 1
+        ? images[0].name.replace(/\.[^/.]+$/, "")
+        : `Operative_Report_${stamp}`;
+      target.push({
+        id: uid(),
+        name: `${base}.pdf`,
+        type: "application/pdf",
+        size: pdfBlob.size,
+        dataUrl: pdfDataUrl,
+      });
+    }
+    for (const file of rest) {
+      const dataUrl = await fileToDataURL(file);
+      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+    }
+  } else {
+    for (const file of files) {
+      const dataUrl = await fileToDataURL(file);
+      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+    }
   }
   save();
   render();
@@ -582,7 +641,7 @@ async function buildPdf() {
 
   const allDocs = [
     ...c.opDocs.map((d) => ({ ...d, section: "Operative Report" })),
-    ...c.dxDocs.map((d) => ({ ...d, section: "Diagnostics" })),
+    ...c.dxDocs.map((d) => ({ ...d, section: "H&P Note" })),
   ];
   for (const d of allDocs) {
     if (!d.type.startsWith("image/")) continue;
