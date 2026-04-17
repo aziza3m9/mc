@@ -6,7 +6,7 @@ const state = {
   timesheet: [],   // {id, date, hours, caseId}
   activeTimer: null, // {startedAt, caseId}
   caseSearch: "",
-  caseStatusFilter: "all", // all | coding | review | complete
+  caseStatusFilter: "coding", // coding | review | complete
 };
 
 const STATUS_META = {
@@ -56,7 +56,9 @@ function load() {
   for (const e of state.timesheet) {
     if (typeof e.employee !== "string") e.employee = "";
   }
-  if (!state.caseStatusFilter) state.caseStatusFilter = "all";
+  // Normalize filter: migrate old "all" value and any unknown value to "coding".
+  const validFilters = ["coding", "review", "complete"];
+  if (!validFilters.includes(state.caseStatusFilter)) state.caseStatusFilter = "coding";
 }
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -439,13 +441,11 @@ function renderStatusFilterTabs() {
   const tabs = document.getElementById("status-filter");
   if (!tabs) return;
   const counts = {
-    all: state.cases.length,
     coding: state.cases.filter((c) => (c.status || "coding") === "coding").length,
     review: state.cases.filter((c) => c.status === "review").length,
     complete: state.cases.filter((c) => c.status === "complete").length,
   };
   const defs = [
-    { key: "all", label: "All" },
     { key: "coding", label: "Coding" },
     { key: "review", label: "In Review" },
     { key: "complete", label: "Complete" },
@@ -474,29 +474,27 @@ function renderCasesIndex() {
   grid.innerHTML = "";
 
   const q = (state.caseSearch || "").toLowerCase();
-  const filter = state.caseStatusFilter || "all";
+  const filter = state.caseStatusFilter || "coding";
   const cases = state.cases.filter((c) => {
     const status = c.status || "coding";
-    if (filter !== "all" && status !== filter) return false;
+    if (status !== filter) return false;
     if (!q) return true;
     const hay = `${c.patient.name} ${c.patient.mrn} ${c.patient.provider} ${c.patient.facility} ${c.assignee || ""}`.toLowerCase();
     return hay.includes(q);
   });
 
   if (countEl) {
-    const total = state.cases.length;
     const shown = cases.length;
-    const scoped = filter !== "all" || q;
-    countEl.textContent = scoped
-      ? `${shown} of ${total} cases`
-      : `${total} ${total === 1 ? "case" : "cases"}`;
+    const label = (STATUS_META[filter] || STATUS_META.coding).label.toLowerCase();
+    countEl.textContent = `${shown} ${shown === 1 ? "case" : "cases"} · ${label}`;
   }
 
   if (!cases.length) {
+    const label = (STATUS_META[filter] || STATUS_META.coding).label;
     const msg = state.cases.length
-      ? (filter !== "all" || q ? "No cases match your filters." : "")
+      ? (q ? "No cases match your search in this section." : `No cases in <strong>${label}</strong>.`)
       : 'Your library is empty. Click <strong>New Case</strong> to begin.';
-    grid.innerHTML = `<div class="case-grid-empty">${msg || "No cases match your filters."}</div>`;
+    grid.innerHTML = `<div class="case-grid-empty">${msg}</div>`;
     return;
   }
 
