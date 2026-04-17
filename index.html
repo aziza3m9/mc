@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Medical Coding Dashboard</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>Medical Coding Dashboard</h1>
+  <div class="topbar-actions">
+    <button id="new-case-btn" class="btn primary">+ New Case</button>
+    <button id="export-all-btn" class="btn">Export Data</button>
+    <label class="btn" for="import-all">Import Data<input id="import-all" type="file" accept="application/json" hidden /></label>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <h2>Cases</h2>
+    <ul id="case-list" class="case-list"></ul>
+  </aside>
+
+  <section class="content">
+    <div id="empty-state" class="empty-state">
+      <p>No case selected. Create a new case to begin.</p>
+    </div>
+
+    <div id="case-view" class="case-view" hidden>
+      <section class="card">
+        <h2>Patient Information</h2>
+        <div class="grid two">
+          <label>Patient Name<input data-field="name" type="text" placeholder="Last, First" /></label>
+          <label>Date of Birth<input data-field="dob" type="date" /></label>
+          <label>MRN<input data-field="mrn" type="text" placeholder="Medical Record #" /></label>
+          <label>Date of Service<input data-field="dos" type="date" /></label>
+          <label>Provider<input data-field="provider" type="text" placeholder="Physician" /></label>
+          <label>Facility<input data-field="facility" type="text" placeholder="Hospital / Clinic" /></label>
+          <label class="full">Notes<textarea data-field="notes" rows="2" placeholder="Case notes"></textarea></label>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Documents</h2>
+          <div class="card-head-actions">
+            <label class="btn" for="upload-op">Upload Operative Report<input id="upload-op" type="file" accept="image/*,application/pdf" multiple hidden /></label>
+            <label class="btn" for="upload-dx">Upload Diagnostics<input id="upload-dx" type="file" accept="image/*,application/pdf" multiple hidden /></label>
+            <button id="build-pdf-btn" class="btn primary">Build Case PDF</button>
+          </div>
+        </div>
+        <div class="doc-columns">
+          <div>
+            <h3>Operative Report</h3>
+            <ul id="op-list" class="doc-list"></ul>
+          </div>
+          <div>
+            <h3>Diagnostics</h3>
+            <ul id="dx-list" class="doc-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>CPT Codes</h2>
+          <button id="add-cpt-btn" class="btn">+ Add Code</button>
+        </div>
+        <table class="table" id="cpt-table">
+          <thead>
+            <tr>
+              <th>CPT</th>
+              <th>Description</th>
+              <th>Modifiers</th>
+              <th>Units</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Hours Tracked</h2>
+          <button id="add-hours-btn" class="btn">+ Log Time</button>
+        </div>
+        <table class="table" id="hours-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Hours</th>
+              <th>Task</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="hours-total">Total: <span id="hours-total">0.00</span> hrs</div>
+      </section>
+
+      <section class="card danger-card">
+        <button id="delete-case-btn" class="btn danger">Delete Case</button>
+      </section>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
