@@ -770,7 +770,7 @@ textarea { font-family: inherit; resize: vertical; }
   justify-content: center;
   animation: fadein 0.15s ease;
 }
-.doc-viewer[hidden] { display: none; }
+.doc-viewer[hidden] { display: none !important; }
 .doc-viewer-backdrop {
   position: absolute;
   inset: 0;
