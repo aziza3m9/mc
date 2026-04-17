@@ -1,29 +1,36 @@
 :root {
-  /* ===== Luxury palette — ivory, midnight navy, champagne gold ===== */
-  --bg: #f4ede0;              /* warm champagne cream */
-  --bg-tint: #eee4cf;         /* slightly darker accent for surface depth */
-  --surface: #fdfaf2;         /* pearl */
-  --surface-muted: #f0e7d2;   /* warm sand */
-  --surface-hover: #f7efdd;
-  --border: #dcc99f;          /* muted gold border */
+  /* ===== Luxury palette — old-world wine library (burgundy + gold + cream) ===== */
+  --bg: #f4e9d0;              /* warm parchment */
+  --bg-tint: #eedcb0;         /* slightly richer cream */
+  --surface: #fdf8ea;          /* pearl cream */
+  --surface-muted: #efe1c1;   /* aged paper */
+  --surface-hover: #f7edd1;
+  --border: #dcc08b;          /* muted gold border */
   --border-strong: #b89a5a;   /* richer gold */
   --gold: #b8892d;            /* antique gold */
   --gold-hover: #956a1f;
   --gold-soft: #f2e5c3;
   --gold-bright: #d4af5c;
-  --navy: #0e1f3c;            /* midnight navy (primary brand) */
-  --navy-hover: #1a2e54;
-  --navy-soft: #dde3f1;
-  --text: #1c2340;            /* deep navy text, never pure black */
-  --text-muted: #5a5142;
-  --text-subtle: #8a7d62;
+  --burgundy: #6b1e2c;        /* claret primary brand */
+  --burgundy-hover: #8a2f42;
+  --burgundy-deep: #4a131e;   /* sidebar base */
+  --burgundy-darker: #2f0a11;
+  --burgundy-soft: #f0d4d6;
+  /* Legacy tokens kept as aliases so existing rules continue to work */
+  --navy: var(--burgundy);
+  --navy-hover: var(--burgundy-hover);
+  --navy-soft: var(--burgundy-soft);
+  --text: #2a1010;             /* deep wine, never pure black */
+  --text-muted: #6a4a3a;
+  --text-subtle: #9c7c5a;
   --danger: #8b2a2a;           /* claret */
   --danger-soft: #f5e1e1;
   --success: #1d5a3a;          /* deep emerald */
   --warning: #a76e18;
-  --shadow-sm: 0 1px 2px rgba(28, 35, 64, 0.06);
-  --shadow-md: 0 6px 18px rgba(28, 35, 64, 0.09);
-  --shadow-gold: 0 8px 24px rgba(184, 137, 45, 0.18);
+  --shadow-sm: 0 1px 2px rgba(74, 19, 30, 0.08);
+  --shadow-md: 0 6px 18px rgba(74, 19, 30, 0.14);
+  --shadow-gold: 0 8px 24px rgba(184, 137, 45, 0.22);
+  --shadow-wine: 0 8px 24px rgba(107, 30, 44, 0.22);
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
@@ -36,12 +43,12 @@ body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background:
     /* faint paper grain */
-    repeating-linear-gradient(45deg, rgba(184, 137, 45, 0.035) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(45deg, rgba(184, 137, 45, 0.04) 0 1px, transparent 1px 3px),
     /* warm golden glow upper-left */
-    radial-gradient(1400px 700px at -5% -20%, rgba(212, 175, 92, 0.28), transparent 65%),
-    /* cool navy haze lower-right */
-    radial-gradient(1100px 600px at 105% 120%, rgba(14, 31, 60, 0.10), transparent 70%),
-    linear-gradient(180deg, #f6eedf 0%, #ecddbc 100%);
+    radial-gradient(1400px 700px at -5% -20%, rgba(212, 175, 92, 0.30), transparent 65%),
+    /* wine haze lower-right */
+    radial-gradient(1100px 600px at 105% 120%, rgba(107, 30, 44, 0.14), transparent 70%),
+    linear-gradient(180deg, #f6ecd2 0%, #eddaa8 100%);
   background-attachment: fixed;
   color: var(--text);
   font-size: 14px;
@@ -60,8 +67,9 @@ a:hover { color: var(--gold-hover); }
 
 /* ===== Sidebar ===== */
 .sidebar {
-  background: linear-gradient(180deg, #101f3c 0%, #0a1730 100%);
-  border-right: 1px solid rgba(212, 175, 92, 0.25);
+  background:
+    linear-gradient(180deg, #5a1924 0%, #3d0e17 100%);
+  border-right: 1px solid rgba(212, 175, 92, 0.3);
   display: flex;
   flex-direction: column;
   padding: 22px 14px;
@@ -408,7 +416,7 @@ a:hover { color: var(--gold-hover); }
   color: var(--text);
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
-  background: linear-gradient(180deg, var(--text) 0%, #3a466d 100%);
+  background: linear-gradient(180deg, var(--burgundy) 0%, #2a0910 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -499,23 +507,23 @@ textarea { font-family: inherit; resize: vertical; }
 .btn svg { width: 14px; height: 14px; flex-shrink: 0; stroke-width: 2; }
 
 .btn.primary {
-  background: linear-gradient(180deg, #1a325d 0%, #0a1730 100%);
-  border-color: #0a1730;
-  color: #f5ecd3;
+  background: linear-gradient(180deg, #8a2f42 0%, #4a131e 100%);
+  border-color: #2f0a11;
+  color: #f5e1d6;
   box-shadow:
-    0 2px 6px rgba(14, 31, 60, 0.35),
-    inset 0 1px 0 rgba(212, 175, 92, 0.35),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+    0 2px 6px rgba(74, 19, 30, 0.38),
+    inset 0 1px 0 rgba(212, 175, 92, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
   position: relative;
   overflow: hidden;
 }
 .btn.primary:hover {
-  background: linear-gradient(180deg, #24447a 0%, #122648 100%);
+  background: linear-gradient(180deg, #a5405a 0%, #6b1e2c 100%);
   border-color: var(--gold);
-  color: #f9e9bf;
+  color: #fbe9c4;
   box-shadow:
-    0 6px 14px rgba(14, 31, 60, 0.35),
-    inset 0 1px 0 rgba(212, 175, 92, 0.55);
+    0 6px 14px rgba(74, 19, 30, 0.4),
+    inset 0 1px 0 rgba(212, 175, 92, 0.6);
 }
 
 .btn.gold {
@@ -913,7 +921,7 @@ textarea { font-family: inherit; resize: vertical; }
 .doc-viewer-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(14, 31, 60, 0.55);
+  background: rgba(74, 19, 30, 0.55);
   backdrop-filter: blur(3px);
   cursor: pointer;
 }
@@ -924,7 +932,7 @@ textarea { font-family: inherit; resize: vertical; }
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 20px 60px rgba(14, 31, 60, 0.35);
+  box-shadow: 0 20px 60px rgba(74, 19, 30, 0.35);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1074,10 +1082,10 @@ textarea { font-family: inherit; resize: vertical; }
 }
 .status-tab:hover { color: var(--gold-hover); background: var(--surface-muted); }
 .status-tab.active {
-  background: linear-gradient(180deg, #162c54 0%, #0e1f3c 100%);
-  color: #f5ecd3;
-  border-color: #0a1730;
-  box-shadow: 0 2px 6px rgba(14,31,60,0.22), inset 0 1px 0 rgba(212,175,92,0.3);
+  background: linear-gradient(180deg, #8a2f42 0%, #4a131e 100%);
+  color: #f5e1d6;
+  border-color: #2f0a11;
+  box-shadow: 0 2px 6px rgba(74,19,30,0.28), inset 0 1px 0 rgba(212,175,92,0.35);
 }
 .status-tab.active .status-tab-count {
   background: linear-gradient(135deg, #e9cc85, #b8892d);
@@ -1279,7 +1287,7 @@ textarea { font-family: inherit; resize: vertical; }
 }
 .cal-day.cal-has-due {
   border-color: var(--navy);
-  box-shadow: inset 0 0 0 1px rgba(14, 31, 60, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(74, 19, 30, 0.2);
 }
 .cal-day.cal-today {
   background: linear-gradient(180deg, #fff5d7 0%, #f7e3a6 100%);
