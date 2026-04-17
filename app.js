@@ -506,27 +506,56 @@ function renderDocList(id, docs, kind) {
   }
 }
 
+let currentViewerBlobUrl = null;
+
+function dataUrlToBlob(dataUrl) {
+  // Strips any extra params (e.g. ";filename=...") that jsPDF adds before ";base64,"
+  const match = /^data:([^;,]+)(?:;[^,]*)?(;base64)?,(.*)$/.exec(dataUrl);
+  if (!match) return null;
+  const mime = match[1] || "application/octet-stream";
+  const isBase64 = !!match[2];
+  const data = match[3];
+  const bytes = isBase64 ? atob(data) : decodeURIComponent(data);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
 function openDoc(d) {
   const viewer = document.getElementById("doc-viewer");
   const title = document.getElementById("doc-viewer-title");
   const body = document.getElementById("doc-viewer-body");
   const dl = document.getElementById("doc-viewer-download");
   if (!viewer || !body) return;
+
+  // Release any URL from a previous open
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
+  }
+
   title.textContent = d.name || "Document";
-  dl.href = d.dataUrl;
-  dl.download = d.name || "document";
   body.innerHTML = "";
+
+  const blob = dataUrlToBlob(d.dataUrl);
+  const blobUrl = blob ? URL.createObjectURL(blob) : d.dataUrl;
+  currentViewerBlobUrl = blob ? blobUrl : null;
+
+  dl.href = blobUrl;
+  dl.download = d.name || "document";
+
   if (d.type && d.type.startsWith("image/")) {
     const img = document.createElement("img");
-    img.src = d.dataUrl;
+    img.src = blobUrl;
     img.alt = d.name || "";
     body.appendChild(img);
   } else {
     const iframe = document.createElement("iframe");
-    iframe.src = d.dataUrl;
+    iframe.src = blobUrl;
     iframe.title = d.name || "Document";
     body.appendChild(iframe);
   }
+
   viewer.hidden = false;
   document.body.style.overflow = "hidden";
 }
@@ -537,6 +566,10 @@ function closeDoc() {
   viewer.hidden = true;
   document.getElementById("doc-viewer-body").innerHTML = "";
   document.body.style.overflow = "";
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
+  }
 }
 
 const trashIcon = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
