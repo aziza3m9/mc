@@ -94,6 +94,15 @@ function fileToDataURL(file) {
   });
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
 async function imagesToPdfDataUrl(files) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
@@ -117,7 +126,10 @@ async function imagesToPdfDataUrl(files) {
     try { doc.addImage(dataUrl, fmt, x, y, w, h); }
     catch (e) { console.warn("Could not embed image", file.name, e); }
   }
-  return doc.output("datauristring");
+  // Use FileReader on the Blob output — gives a clean
+  // "data:application/pdf;base64,..." with no filename= param that
+  // previously confused the parser and the browser.
+  return blobToDataUrl(doc.output("blob"));
 }
 
 async function addDocs(kind, fileList) {
@@ -557,10 +569,18 @@ function openDoc(d) {
     img.alt = d.name || "";
     body.appendChild(img);
   } else {
-    const iframe = document.createElement("iframe");
-    iframe.src = blobUrl;
-    iframe.title = d.name || "Document";
-    body.appendChild(iframe);
+    const obj = document.createElement("object");
+    obj.data = blobUrl;
+    obj.type = d.type || "application/pdf";
+    obj.setAttribute("width", "100%");
+    obj.setAttribute("height", "100%");
+    const fallback = document.createElement("div");
+    fallback.className = "doc-viewer-fallback";
+    fallback.innerHTML = `
+      <p>Your browser can't render this PDF inline.</p>
+      <a class="btn gold sm" href="${blobUrl}" target="_blank" rel="noopener">Open in new tab</a>`;
+    obj.appendChild(fallback);
+    body.appendChild(obj);
   }
 
   viewer.hidden = false;

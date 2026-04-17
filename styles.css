@@ -826,11 +826,22 @@ textarea { font-family: inherit; resize: vertical; }
   justify-content: center;
   overflow: auto;
 }
-.doc-viewer-body iframe {
+.doc-viewer-body iframe,
+.doc-viewer-body object,
+.doc-viewer-body embed {
   width: 100%;
   height: 100%;
   border: 0;
   background: #fff;
+}
+.doc-viewer-fallback {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
 }
 .doc-viewer-body img {
   max-width: 100%;
