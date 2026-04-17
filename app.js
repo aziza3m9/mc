@@ -616,6 +616,7 @@ function getImageDimensions(dataUrl) {
 async function buildPdf() {
   const c = getActive();
   if (!c) return;
+  showPdfModalLoading(caseLabel(c));
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();
@@ -708,6 +709,26 @@ async function buildPdf() {
 
 let currentPdfBlobUrl = null;
 
+function showPdfModalLoading(title) {
+  const modal = document.getElementById("pdf-modal");
+  const frame = document.getElementById("pdf-frame");
+  const titleEl = document.getElementById("pdf-modal-title");
+  const subEl = document.getElementById("pdf-modal-sub");
+  if (!modal) return;
+  titleEl.textContent = title || "Case PDF";
+  subEl.textContent = "Building PDF…";
+  frame.removeAttribute("src");
+  frame.srcdoc = `<!doctype html><html><head><style>
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,sans-serif;background:#f5f7fa;color:#6b7280;}
+    .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;font-size:13px;}
+    .sp{width:28px;height:28px;border:3px solid #e5e7eb;border-top-color:#4f7cff;border-radius:50%;animation:s 0.8s linear infinite;}
+    @keyframes s{to{transform:rotate(360deg);}}
+  </style></head><body><div class="wrap"><div class="sp"></div><div>Building PDF…</div></div></body></html>`;
+  modal.hidden = false;
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
 function openPdfPreview(doc, filename, title) {
   const blob = doc.output("blob");
   if (currentPdfBlobUrl) URL.revokeObjectURL(currentPdfBlobUrl);
@@ -718,20 +739,29 @@ function openPdfPreview(doc, filename, title) {
   const titleEl = document.getElementById("pdf-modal-title");
   const subEl = document.getElementById("pdf-modal-sub");
   const dlBtn = document.getElementById("pdf-download-btn");
+  const openBtn = document.getElementById("pdf-open-btn");
 
   titleEl.textContent = title || "Case PDF";
   subEl.textContent = filename;
-  frame.src = currentPdfBlobUrl;
-  dlBtn.onclick = () => {
-    const a = document.createElement("a");
-    a.href = currentPdfBlobUrl;
-    a.download = filename;
-    a.click();
-  };
 
   modal.hidden = false;
   modal.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
+
+  frame.removeAttribute("srcdoc");
+  frame.src = currentPdfBlobUrl + "#toolbar=1&view=FitH";
+
+  dlBtn.onclick = () => {
+    const a = document.createElement("a");
+    a.href = currentPdfBlobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  if (openBtn) {
+    openBtn.onclick = () => window.open(currentPdfBlobUrl, "_blank", "noopener");
+  }
 }
 
 function closePdfPreview() {
