@@ -40,7 +40,19 @@ function load() {
       }
     }
   } catch (e) { console.warn("Failed to load", e); }
+  if (!Array.isArray(state.cases)) state.cases = [];
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
+  if (typeof state.caseSearch !== "string") state.caseSearch = "";
+  for (const c of state.cases) {
+    if (!c.patient || typeof c.patient !== "object") {
+      c.patient = { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" };
+    }
+    if (!Array.isArray(c.opDocs)) c.opDocs = [];
+    if (!Array.isArray(c.dxDocs)) c.dxDocs = [];
+    if (!Array.isArray(c.cpts)) c.cpts = [];
+    if (!c.createdAt) c.createdAt = new Date().toISOString();
+    if (!c.id) c.id = uid();
+  }
 }
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
