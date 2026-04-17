@@ -1019,10 +1019,10 @@ textarea { font-family: inherit; resize: vertical; }
   border-left: 3px solid var(--gold);
 }
 
-/* ===== Clock controls reflow (no task field) ===== */
+/* ===== Clock controls reflow (Case + Employee + button) ===== */
 .clock-controls {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr 1fr auto;
   gap: 14px;
   align-items: end;
 }

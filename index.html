@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=8" />
+<link rel="stylesheet" href="styles.css?v=9" />
 </head>
 <body>
 <div class="app">
@@ -261,8 +261,11 @@
             <div class="clock-timer" id="clock-timer">00:00:00</div>
           </div>
           <div class="clock-controls">
-            <label>Case (optional)
+            <label>Case
               <select id="timer-case"><option value="">— None —</option></select>
+            </label>
+            <label>Employee
+              <input type="text" id="timer-employee" placeholder="Your name" />
             </label>
             <button id="clock-btn" class="btn primary lg">Clock In</button>
           </div>
@@ -300,9 +303,10 @@
           <table class="table" id="entries-table">
             <thead>
               <tr>
-                <th style="width: 160px;">Date</th>
-                <th style="width: 100px;">Hours</th>
+                <th style="width: 150px;">Date</th>
+                <th style="width: 90px;">Hours</th>
                 <th>Case</th>
+                <th>Employee</th>
                 <th style="width: 40px;"></th>
               </tr>
             </thead>
@@ -336,6 +340,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
