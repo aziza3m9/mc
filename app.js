@@ -7,6 +7,7 @@ const state = {
   activeTimer: null, // {startedAt, caseId}
   caseSearch: "",
   caseStatusFilter: "coding", // coding | review | complete
+  calendarMonth: null,        // "YYYY-MM" (null = current month)
 };
 
 const STATUS_META = {
@@ -52,6 +53,7 @@ function load() {
   for (const c of state.cases) {
     if (!c.status) c.status = "coding";
     if (typeof c.assignee !== "string") c.assignee = "";
+    if (typeof c.dueDate !== "string") c.dueDate = "";
   }
   for (const e of state.timesheet) {
     if (typeof e.employee !== "string") e.employee = "";
@@ -81,6 +83,7 @@ function createCase() {
     opDocs: [], dxDocs: [], cpts: [],
     status: "coding",
     assignee: "",
+    dueDate: "",
   };
   state.cases.unshift(c);
   state.activeId = c.id;
@@ -391,10 +394,41 @@ function renderNavBadges() {
 }
 
 /* ---------- Overview ---------- */
+function renderDueToday() {
+  const ul = document.getElementById("due-today");
+  const dateEl = document.getElementById("due-today-date");
+  if (!ul) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (dateEl) {
+    const d = new Date();
+    dateEl.textContent = d.toLocaleDateString(undefined, {
+      weekday: "long", month: "long", day: "numeric",
+    });
+  }
+  const due = state.cases.filter((c) => c.dueDate === today && c.status !== "complete");
+  ul.innerHTML = "";
+  if (!due.length) {
+    ul.innerHTML = '<li class="empty">Nothing due today.</li>';
+    return;
+  }
+  for (const c of due) {
+    const meta = STATUS_META[c.status] || STATUS_META.coding;
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div>
+        <div>${escapeHtml(caseLabel(c))} <span class="status-pill ${meta.tone}">${meta.label}</span></div>
+        <div class="muted">${escapeHtml(c.assignee || "Unassigned")}</div>
+      </div>
+      <a href="#case/${c.id}" class="btn ghost sm">Open</a>`;
+    ul.appendChild(li);
+  }
+}
+
 function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
   document.getElementById("kpi-hours-today").textContent = sumHours(filterEntriesSince(startOfToday())).toFixed(2);
   document.getElementById("kpi-hours-week").textContent = sumHours(filterEntriesSince(startOfWeek())).toFixed(2);
+  renderDueToday();
 
   const recentCases = document.getElementById("recent-cases");
   recentCases.innerHTML = "";
@@ -561,6 +595,8 @@ function renderCaseDetail() {
   if (statusEl) statusEl.value = c.status || "coding";
   const assigneeEl = document.getElementById("case-assignee");
   if (assigneeEl) assigneeEl.value = c.assignee || "";
+  const dueEl = document.getElementById("case-due-date");
+  if (dueEl) dueEl.value = c.dueDate || "";
 
   renderDocList("op-list", c.opDocs, "op");
   renderDocList("dx-list", c.dxDocs, "dx");
@@ -700,6 +736,84 @@ function renderCptTable(c) {
   }
 }
 
+/* ---------- Calendar ---------- */
+function currentCalMonth() {
+  if (state.calendarMonth) return state.calendarMonth;
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shiftCalMonth(delta) {
+  const [y, m] = currentCalMonth().split("-").map(Number);
+  let ny = y, nm = m + delta;
+  while (nm < 1)  { nm += 12; ny -= 1; }
+  while (nm > 12) { nm -= 12; ny += 1; }
+  state.calendarMonth = `${ny}-${String(nm).padStart(2, "0")}`;
+  save();
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const wrap = document.getElementById("calendar");
+  const titleEl = document.getElementById("cal-title");
+  if (!wrap || !titleEl) return;
+
+  const ym = currentCalMonth();
+  const [y, m] = ym.split("-").map(Number);
+  const first = new Date(y, m - 1, 1);
+  const lastDay = new Date(y, m, 0).getDate();
+  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  titleEl.textContent = `${monthNames[m - 1]} ${y}`;
+
+  const dayHours = {};
+  const dayEntryCounts = {};
+  for (const e of state.timesheet) {
+    if (typeof e.date !== "string" || !e.date.startsWith(ym)) continue;
+    dayHours[e.date] = (dayHours[e.date] || 0) + (Number(e.hours) || 0);
+    dayEntryCounts[e.date] = (dayEntryCounts[e.date] || 0) + 1;
+  }
+
+  const dayDue = {};
+  for (const c of state.cases) {
+    if (!c.dueDate || !c.dueDate.startsWith(ym)) continue;
+    (dayDue[c.dueDate] ||= []).push(c);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  let html = `<div class="cal-weekdays">${weekdays.map((d) => `<div>${d}</div>`).join("")}</div><div class="cal-grid">`;
+  const firstDow = (first.getDay() + 6) % 7; // Mon = 0 … Sun = 6
+  for (let i = 0; i < firstDow; i++) html += `<div class="cal-day cal-blank"></div>`;
+
+  for (let day = 1; day <= lastDay; day++) {
+    const iso = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const h = dayHours[iso] || 0;
+    const entries = dayEntryCounts[iso] || 0;
+    const due = dayDue[iso] || [];
+    const isToday = iso === today;
+
+    const classes = ["cal-day"];
+    if (isToday) classes.push("cal-today");
+    if (h > 0) classes.push("cal-has-hours");
+    if (due.length) classes.push("cal-has-due");
+
+    const tooltipParts = [];
+    if (h > 0) tooltipParts.push(`${h.toFixed(2)}h logged (${entries} ${entries === 1 ? "entry" : "entries"})`);
+    if (due.length) tooltipParts.push(`${due.length} due: ${due.map((c) => caseLabel(c)).join(", ")}`);
+
+    html += `
+      <div class="${classes.join(" ")}" title="${escapeAttr(tooltipParts.join(" · "))}">
+        <div class="cal-day-num">${day}</div>
+        ${h > 0 ? `<div class="cal-hours">${h.toFixed(2)}h</div>` : ""}
+        ${due.length ? `<div class="cal-due-list">${due.slice(0, 2).map((c) => `<a class="cal-due-chip" href="#case/${c.id}">${escapeHtml(caseLabel(c))}</a>`).join("")}${due.length > 2 ? `<span class="cal-due-more">+${due.length - 2}</span>` : ""}</div>` : ""}
+      </div>`;
+  }
+
+  html += "</div>";
+  wrap.innerHTML = html;
+}
+
 /* ---------- Timesheet page ---------- */
 function renderTimesheet() {
   populateCaseSelect("timer-case");
@@ -710,6 +824,7 @@ function renderTimesheet() {
   if (empEl)  { empEl.value  = t ? (t.employee || "") : empEl.value;  empEl.disabled = !!t;  }
   updateTimerDisplay();
   if (t && !timerInterval) startTimerLoop();
+  renderCalendar();
 
   renderKpis();
   renderEntriesTable();
@@ -965,6 +1080,15 @@ function bindEvents() {
       save();
     });
   }
+  const dueInput = document.getElementById("case-due-date");
+  if (dueInput) {
+    dueInput.addEventListener("input", () => {
+      const c = getActive();
+      if (!c) return;
+      c.dueDate = dueInput.value;
+      save();
+    });
+  }
 
   document.getElementById("upload-op").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("op", e.target.files); e.target.value = "";
@@ -993,6 +1117,17 @@ function bindEvents() {
     else clockIn();
   });
   document.getElementById("add-entry-btn").addEventListener("click", addManualEntry);
+
+  const calPrev = document.getElementById("cal-prev");
+  const calNext = document.getElementById("cal-next");
+  const calToday = document.getElementById("cal-today");
+  if (calPrev)  calPrev.addEventListener("click", () => shiftCalMonth(-1));
+  if (calNext)  calNext.addEventListener("click", () => shiftCalMonth(+1));
+  if (calToday) calToday.addEventListener("click", () => {
+    state.calendarMonth = null;
+    save();
+    renderCalendar();
+  });
 
   document.querySelectorAll("#doc-viewer [data-close]").forEach((el) => {
     el.addEventListener("click", closeDoc);
