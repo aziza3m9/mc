@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Medical Coding CRM</title>
+<title>MedCode CRM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -15,10 +15,10 @@
   <!-- Sidebar: persistent navigation -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">Rx</div>
+      <div class="brand-mark">R<span style="font-size:0.7em;vertical-align:sub;">x</span></div>
       <div>
-        <div class="brand-title">MedCode CRM</div>
-        <div class="brand-sub">Private · local data</div>
+        <div class="brand-title">MedCode</div>
+        <div class="brand-sub">Private Ledger</div>
       </div>
     </div>
 
@@ -62,7 +62,7 @@
       <header class="page-header">
         <div>
           <h1>Overview</h1>
-          <p class="page-sub">At-a-glance summary of your workload</p>
+          <p class="page-sub">An elegant summary of your practice</p>
         </div>
       </header>
 
@@ -105,131 +105,134 @@
     </section>
 
     <!-- =========================================================== -->
-    <!-- CASES PAGE                                                   -->
+    <!-- CASES INDEX (gallery of all cases)                           -->
     <!-- =========================================================== -->
     <section id="page-cases" class="page" hidden>
       <header class="page-header">
         <div>
           <h1>Cases</h1>
-          <p class="page-sub">Patient records, documents, and CPT codes</p>
+          <p class="page-sub">Your library of patient files</p>
         </div>
         <div class="page-actions">
-          <button id="new-case-btn" class="btn primary">
+          <button id="new-case-btn" class="btn gold">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             New Case
           </button>
         </div>
       </header>
 
-      <div class="cases-layout">
-        <aside class="cases-list-panel">
-          <div class="search-row">
-            <input type="text" id="case-search" placeholder="Search cases…" />
-          </div>
-          <ul id="case-list" class="case-list"></ul>
-        </aside>
+      <div class="cases-index-toolbar">
+        <div class="search-field">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="case-search" placeholder="Search by patient, MRN, provider, facility…" />
+        </div>
+        <div class="cases-count" id="cases-count">0 cases</div>
+      </div>
 
-        <div class="case-detail">
-          <div id="case-empty" class="empty-state">
-            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-3 7 3z"/></svg>
-            <h3>No case selected</h3>
-            <p>Select a case from the list, or click <strong>New Case</strong>.</p>
-          </div>
+      <div id="case-grid" class="case-grid"></div>
+    </section>
 
-          <div id="case-view" hidden>
-            <div class="page-header sub">
-              <div>
-                <h2 id="case-title">New Case</h2>
-                <div class="page-sub" id="case-subtitle">—</div>
-              </div>
-              <div class="page-actions">
-                <button id="build-pdf-btn" class="btn primary">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  Build Case PDF
-                </button>
-              </div>
-            </div>
+    <!-- =========================================================== -->
+    <!-- CASE DETAIL (single case, clean URL #case/:id)               -->
+    <!-- =========================================================== -->
+    <section id="page-case" class="page" hidden>
+      <div class="page-back">
+        <a href="#cases" class="btn ghost sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          All Cases
+        </a>
+      </div>
 
-            <section class="card">
-              <h2>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                Patient Information
-              </h2>
-              <div class="grid two">
-                <label>Patient Name<input data-field="name" type="text" placeholder="Last, First" /></label>
-                <label>Date of Birth<input data-field="dob" type="date" /></label>
-                <label>MRN<input data-field="mrn" type="text" placeholder="Medical Record #" /></label>
-                <label>Date of Service<input data-field="dos" type="date" /></label>
-                <label>Provider<input data-field="provider" type="text" placeholder="Physician name" /></label>
-                <label>Facility<input data-field="facility" type="text" placeholder="Hospital / Clinic" /></label>
-                <label class="full">Notes<textarea data-field="notes" rows="2" placeholder="Case notes"></textarea></label>
-              </div>
-            </section>
+      <header class="page-header">
+        <div>
+          <h1 id="case-title">New Case</h1>
+          <p class="page-sub" id="case-subtitle">—</p>
+        </div>
+        <div class="page-actions">
+          <button id="build-pdf-btn" class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Build Case PDF
+          </button>
+        </div>
+      </header>
 
-            <section class="card">
-              <div class="card-head">
-                <h2>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  Documents
-                </h2>
-                <div class="card-head-actions">
-                  <label class="btn sm" for="upload-op">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Op Report
-                    <input id="upload-op" type="file" accept="image/*,application/pdf" multiple hidden />
-                  </label>
-                  <label class="btn sm" for="upload-dx">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Diagnostics
-                    <input id="upload-dx" type="file" accept="image/*,application/pdf" multiple hidden />
-                  </label>
-                </div>
-              </div>
-              <div class="doc-columns">
-                <div>
-                  <h3>Operative Report</h3>
-                  <ul id="op-list" class="doc-list"></ul>
-                </div>
-                <div>
-                  <h3>Diagnostics</h3>
-                  <ul id="dx-list" class="doc-list"></ul>
-                </div>
-              </div>
-            </section>
+      <section class="card">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Patient Information
+        </h2>
+        <div class="grid two">
+          <label>Patient Name<input data-field="name" type="text" placeholder="Last, First" /></label>
+          <label>Date of Birth<input data-field="dob" type="date" /></label>
+          <label>MRN<input data-field="mrn" type="text" placeholder="Medical Record #" /></label>
+          <label>Date of Service<input data-field="dos" type="date" /></label>
+          <label>Provider<input data-field="provider" type="text" placeholder="Physician name" /></label>
+          <label>Facility<input data-field="facility" type="text" placeholder="Hospital / Clinic" /></label>
+          <label class="full">Notes<textarea data-field="notes" rows="2" placeholder="Case notes"></textarea></label>
+        </div>
+      </section>
 
-            <section class="card">
-              <div class="card-head">
-                <h2>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/><path d="M9 11V7a3 3 0 0 1 6 0v4"/></svg>
-                  CPT Codes
-                </h2>
-                <button id="add-cpt-btn" class="btn sm">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  Add Code
-                </button>
-              </div>
-              <div class="table-wrap">
-                <table class="table" id="cpt-table">
-                  <thead>
-                    <tr>
-                      <th style="width: 110px;">CPT</th>
-                      <th>Description</th>
-                      <th style="width: 110px;">Modifiers</th>
-                      <th style="width: 80px;">Units</th>
-                      <th style="width: 40px;"></th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </section>
-
-            <div class="danger-zone">
-              <div class="dz-text"><strong>Danger zone.</strong> Deleting this case removes all patient data, documents and codes.</div>
-              <button id="delete-case-btn" class="btn danger">Delete Case</button>
-            </div>
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Documents
+          </h2>
+          <div class="card-head-actions">
+            <label class="btn sm" for="upload-op">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Op Report
+              <input id="upload-op" type="file" accept="image/*,application/pdf" multiple hidden />
+            </label>
+            <label class="btn sm" for="upload-dx">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Diagnostics
+              <input id="upload-dx" type="file" accept="image/*,application/pdf" multiple hidden />
+            </label>
           </div>
         </div>
+        <div class="doc-columns">
+          <div>
+            <h3>Operative Report</h3>
+            <ul id="op-list" class="doc-list"></ul>
+          </div>
+          <div>
+            <h3>Diagnostics</h3>
+            <ul id="dx-list" class="doc-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/><path d="M9 11V7a3 3 0 0 1 6 0v4"/></svg>
+            CPT Codes
+          </h2>
+          <button id="add-cpt-btn" class="btn sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Code
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="cpt-table">
+            <thead>
+              <tr>
+                <th style="width: 110px;">CPT</th>
+                <th>Description</th>
+                <th style="width: 110px;">Modifiers</th>
+                <th style="width: 80px;">Units</th>
+                <th style="width: 40px;"></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="danger-zone">
+        <div class="dz-text"><strong>Danger zone.</strong> Deleting this case removes all patient data, documents and codes.</div>
+        <button id="delete-case-btn" class="btn danger">Delete Case</button>
       </div>
     </section>
 
@@ -244,7 +247,6 @@
         </div>
       </header>
 
-      <!-- Clock widget -->
       <section class="card clock-card">
         <div class="clock-row">
           <div class="clock-display">
