@@ -492,10 +492,51 @@ function renderDocList(id, docs, kind) {
       ? `<img src="${d.dataUrl}" alt="" />`
       : `<div class="doc-thumb-pdf">PDF</div>`;
     const size = d.size ? ` · ${(d.size / 1024).toFixed(0)} KB` : "";
-    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
-    li.querySelector(".btn.icon").addEventListener("click", () => removeDoc(kind, d.id));
+    li.title = "Click to open";
+    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><span class="doc-open-hint">Open</span><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
+    li.addEventListener("click", (e) => {
+      if (e.target.closest(".btn")) return;
+      openDoc(d);
+    });
+    li.querySelector(".btn.icon").addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeDoc(kind, d.id);
+    });
     ul.appendChild(li);
   }
+}
+
+function openDoc(d) {
+  const viewer = document.getElementById("doc-viewer");
+  const title = document.getElementById("doc-viewer-title");
+  const body = document.getElementById("doc-viewer-body");
+  const dl = document.getElementById("doc-viewer-download");
+  if (!viewer || !body) return;
+  title.textContent = d.name || "Document";
+  dl.href = d.dataUrl;
+  dl.download = d.name || "document";
+  body.innerHTML = "";
+  if (d.type && d.type.startsWith("image/")) {
+    const img = document.createElement("img");
+    img.src = d.dataUrl;
+    img.alt = d.name || "";
+    body.appendChild(img);
+  } else {
+    const iframe = document.createElement("iframe");
+    iframe.src = d.dataUrl;
+    iframe.title = d.name || "Document";
+    body.appendChild(iframe);
+  }
+  viewer.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeDoc() {
+  const viewer = document.getElementById("doc-viewer");
+  if (!viewer) return;
+  viewer.hidden = true;
+  document.getElementById("doc-viewer-body").innerHTML = "";
+  document.body.style.overflow = "";
 }
 
 const trashIcon = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
@@ -783,6 +824,13 @@ function bindEvents() {
     else clockIn();
   });
   document.getElementById("add-entry-btn").addEventListener("click", addManualEntry);
+
+  document.querySelectorAll("#doc-viewer [data-close]").forEach((el) => {
+    el.addEventListener("click", closeDoc);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("doc-viewer").hidden) closeDoc();
+  });
 }
 
 /* =================================================================
