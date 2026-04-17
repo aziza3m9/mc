@@ -65,17 +65,16 @@ function createCase() {
   state.cases.unshift(c);
   state.activeId = c.id;
   save();
-  navigate("cases");
-  render();
+  navigate(`case/${c.id}`);
 }
 
 function deleteCase(id) {
   if (!confirm("Delete this case permanently? Time entries tied to it will remain but lose the case link.")) return;
   state.cases = state.cases.filter((c) => c.id !== id);
   for (const e of state.timesheet) if (e.caseId === id) e.caseId = "";
-  if (state.activeId === id) state.activeId = state.cases[0]?.id || null;
+  if (state.activeId === id) state.activeId = null;
   save();
-  render();
+  navigate("cases");
 }
 
 function caseLabel(c) {
@@ -256,21 +255,41 @@ function filterEntriesSince(cutoff) {
 
 /* =================================================================
    ROUTING
+   Routes:
+     #overview         → overview page
+     #cases            → gallery of all cases
+     #case/:id         → detail/edit view for one case (stable URL)
+     #timesheet        → timesheet page
 ================================================================= */
-function currentRoute() {
-  const h = (location.hash || "#overview").replace("#", "");
-  return ["overview", "cases", "timesheet"].includes(h) ? h : "overview";
+function parseRoute() {
+  const raw = (location.hash || "#overview").replace(/^#/, "");
+  const [head, id] = raw.split("/");
+  if (head === "case" && id) return { name: "case", id };
+  if (["overview", "cases", "timesheet"].includes(head)) return { name: head, id: null };
+  return { name: "overview", id: null };
 }
 function navigate(route) { location.hash = route; }
 function onRouteChange() {
-  const r = currentRoute();
-  document.querySelectorAll(".page").forEach((p) => { p.hidden = p.id !== `page-${r}`; });
+  const r = parseRoute();
+
+  const pageId = r.name === "case" ? "page-case" : `page-${r.name}`;
+  document.querySelectorAll(".page").forEach((p) => { p.hidden = p.id !== pageId; });
+
+  const navKey = r.name === "case" ? "cases" : r.name;
   document.querySelectorAll(".nav-item").forEach((n) => {
-    n.classList.toggle("active", n.dataset.route === r);
+    n.classList.toggle("active", n.dataset.route === navKey);
   });
-  if (r === "overview") renderOverview();
-  if (r === "cases") renderCasesPage();
-  if (r === "timesheet") renderTimesheet();
+
+  if (r.name === "overview") renderOverview();
+  if (r.name === "cases") renderCasesIndex();
+  if (r.name === "case") {
+    const exists = state.cases.some((c) => c.id === r.id);
+    if (!exists) { navigate("cases"); return; }
+    state.activeId = r.id;
+    save();
+    renderCaseDetail();
+  }
+  if (r.name === "timesheet") renderTimesheet();
 }
 
 /* =================================================================
@@ -308,8 +327,7 @@ function renderOverview() {
           <div>${escapeHtml(caseLabel(c))}</div>
           <div class="muted">${escapeHtml(c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10))} · ${c.cpts.length} CPT</div>
         </div>
-        <a href="#cases" class="btn ghost sm">Open</a>`;
-      li.querySelector("a").addEventListener("click", () => { state.activeId = c.id; save(); });
+        <a href="#case/${c.id}" class="btn ghost sm">Open</a>`;
       recentCases.appendChild(li);
     }
   }
@@ -334,48 +352,68 @@ function renderOverview() {
   }
 }
 
-/* ---------- Cases page ---------- */
-function renderCasesPage() {
-  renderCaseList();
-  renderCaseDetail();
-}
+/* ---------- Cases index (gallery) ---------- */
+function renderCasesIndex() {
+  const grid = document.getElementById("case-grid");
+  const countEl = document.getElementById("cases-count");
+  if (!grid) return;
+  grid.innerHTML = "";
 
-function renderCaseList() {
-  const ul = document.getElementById("case-list");
-  if (!ul) return;
-  ul.innerHTML = "";
   const q = (state.caseSearch || "").toLowerCase();
   const cases = state.cases.filter((c) => {
     if (!q) return true;
     const hay = `${c.patient.name} ${c.patient.mrn} ${c.patient.provider} ${c.patient.facility}`.toLowerCase();
     return hay.includes(q);
   });
+
+  if (countEl) {
+    const total = state.cases.length;
+    const shown = cases.length;
+    countEl.textContent = q ? `${shown} of ${total} cases` : `${total} ${total === 1 ? "case" : "cases"}`;
+  }
+
   if (!cases.length) {
-    ul.innerHTML = `<li class="empty">${state.cases.length ? "No cases match your search." : "No cases yet. Click \"New Case\"."}</li>`;
+    grid.innerHTML = `<div class="case-grid-empty">${
+      state.cases.length
+        ? "No cases match your search."
+        : 'Your library is empty. Click <strong>New Case</strong> to begin.'
+    }</div>`;
     return;
   }
+
   for (const c of cases) {
-    const li = document.createElement("li");
-    if (c.id === state.activeId) li.classList.add("active");
     const name = caseLabel(c);
     const dos = c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10);
-    li.innerHTML = `<div class="case-name">${escapeHtml(name)}</div><div class="case-sub">${escapeHtml(dos)} · ${c.cpts.length} CPT · ${c.opDocs.length + c.dxDocs.length} docs</div>`;
-    li.addEventListener("click", () => { state.activeId = c.id; save(); render(); });
-    ul.appendChild(li);
+    const meta = [c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
+      .filter(Boolean)
+      .join(" · ") || "No patient info yet";
+
+    const card = document.createElement("a");
+    card.className = "case-card";
+    card.href = `#case/${c.id}`;
+    card.innerHTML = `
+      <div class="case-card-head">
+        <div class="case-card-name">${escapeHtml(name)}</div>
+        <div class="case-card-date">${escapeHtml(dos)}</div>
+      </div>
+      <div class="case-card-meta">${escapeHtml(meta)}</div>
+      <div class="case-card-stats">
+        <span class="case-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/><path d="M9 11V7a3 3 0 0 1 6 0v4"/></svg>
+          <strong>${c.cpts.length}</strong> CPT
+        </span>
+        <span class="case-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <strong>${c.opDocs.length + c.dxDocs.length}</strong> docs
+        </span>
+      </div>`;
+    grid.appendChild(card);
   }
 }
 
 function renderCaseDetail() {
   const c = getActive();
-  const view = document.getElementById("case-view");
-  const empty = document.getElementById("case-empty");
-  if (!c) {
-    view.hidden = true;
-    empty.hidden = false;
-    return;
-  }
-  view.hidden = false;
-  empty.hidden = true;
+  if (!c) { navigate("cases"); return; }
 
   document.getElementById("case-title").textContent = caseLabel(c);
   const subParts = [];
@@ -650,7 +688,7 @@ function bindEvents() {
   const search = document.getElementById("case-search");
   if (search) {
     search.value = state.caseSearch || "";
-    search.addEventListener("input", (e) => { state.caseSearch = e.target.value; renderCaseList(); });
+    search.addEventListener("input", (e) => { state.caseSearch = e.target.value; renderCasesIndex(); });
   }
 
   document.querySelectorAll("[data-field]").forEach((el) => {
@@ -661,7 +699,6 @@ function bindEvents() {
       save();
       const f = el.dataset.field;
       if (f === "name" || f === "dos" || f === "mrn" || f === "provider") {
-        renderCaseList();
         const title = document.getElementById("case-title");
         const sub = document.getElementById("case-subtitle");
         if (title) title.textContent = caseLabel(c);
