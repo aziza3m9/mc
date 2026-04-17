@@ -244,7 +244,7 @@ function clockOut() {
   const t = state.activeTimer;
   if (!t) return;
   const elapsedMs = Date.now() - t.startedAt;
-  const hours = +(elapsedMs / 3600000).toFixed(4);
+  const hours = +(elapsedMs / 3600000).toFixed(6);
   if (hours > 0) {
     state.timesheet.unshift({
       id: uid(),
@@ -295,11 +295,44 @@ function updateTimerDisplay() {
   }
 }
 function formatDuration(ms) {
-  const s = Math.floor(ms / 1000);
+  const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+// Convert a fractional-hour value to "HH:MM:SS".
+function hoursToHMS(hours) {
+  const totalSec = Math.max(0, Math.round((Number(hours) || 0) * 3600));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+// Convert a fractional-hour value to a shorter "HH:MM" display.
+function hoursToHM(hours) {
+  const totalMin = Math.max(0, Math.round((Number(hours) || 0) * 60));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Parse "H:MM", "H:MM:SS", or a decimal number into fractional hours.
+// Returns NaN if the input can't be read.
+function parseHoursInput(raw) {
+  if (raw == null) return NaN;
+  const str = String(raw).trim();
+  if (!str) return 0;
+  if (str.includes(":")) {
+    const parts = str.split(":").map((p) => Number(p));
+    if (parts.some((n) => Number.isNaN(n) || n < 0)) return NaN;
+    const [h = 0, m = 0, s = 0] = parts;
+    return h + m / 60 + s / 3600;
+  }
+  const n = Number(str);
+  return Number.isNaN(n) ? NaN : n;
 }
 
 function addManualEntry() {
@@ -311,10 +344,16 @@ function addManualEntry() {
 function updateEntry(id, field, value) {
   const row = state.timesheet.find((r) => r.id === id);
   if (!row) return;
-  row[field] = field === "hours" ? Number(value) || 0 : value;
+  if (field === "hours") {
+    const parsed = parseHoursInput(value);
+    row.hours = Number.isNaN(parsed) ? row.hours : +parsed.toFixed(6);
+  } else {
+    row[field] = value;
+  }
   save();
   renderKpis();
   renderNavBadges();
+  renderCalendar();
 }
 function removeEntry(id) {
   state.timesheet = state.timesheet.filter((r) => r.id !== id);
@@ -427,8 +466,8 @@ function renderDueToday() {
 
 function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
-  document.getElementById("kpi-hours-today").textContent = sumHours(filterEntriesSince(startOfToday())).toFixed(2);
-  document.getElementById("kpi-hours-week").textContent = sumHours(filterEntriesSince(startOfWeek())).toFixed(2);
+  document.getElementById("kpi-hours-today").textContent = hoursToHM(sumHours(filterEntriesSince(startOfToday())));
+  document.getElementById("kpi-hours-week").textContent = hoursToHM(sumHours(filterEntriesSince(startOfWeek())));
   renderDueToday();
 
   const recentCases = document.getElementById("recent-cases");
@@ -465,7 +504,7 @@ function renderOverview() {
           <div>${escapeHtml(c ? caseLabel(c) : "Unassigned")}</div>
           <div class="muted">${escapeHtml(e.date)}</div>
         </div>
-        <div><strong>${Number(e.hours).toFixed(2)}h</strong></div>`;
+        <div><strong>${hoursToHMS(e.hours)}</strong></div>`;
       recentEntries.appendChild(li);
     }
   }
@@ -800,13 +839,13 @@ function renderCalendar() {
     if (due.length) classes.push("cal-has-due");
 
     const tooltipParts = [];
-    if (h > 0) tooltipParts.push(`${h.toFixed(2)}h logged (${entries} ${entries === 1 ? "entry" : "entries"})`);
+    if (h > 0) tooltipParts.push(`${hoursToHMS(h)} logged (${entries} ${entries === 1 ? "entry" : "entries"})`);
     if (due.length) tooltipParts.push(`${due.length} due: ${due.map((c) => caseLabel(c)).join(", ")}`);
 
     html += `
       <div class="${classes.join(" ")}" title="${escapeAttr(tooltipParts.join(" · "))}">
         <div class="cal-day-num">${day}</div>
-        ${h > 0 ? `<div class="cal-hours">${h.toFixed(2)}h</div>` : ""}
+        ${h > 0 ? `<div class="cal-hours">${hoursToHM(h)}</div>` : ""}
         ${due.length ? `<div class="cal-due-list">${due.slice(0, 2).map((c) => `<a class="cal-due-chip" href="#case/${c.id}">${escapeHtml(caseLabel(c))}</a>`).join("")}${due.length > 2 ? `<span class="cal-due-more">+${due.length - 2}</span>` : ""}</div>` : ""}
       </div>`;
   }
@@ -843,7 +882,7 @@ function renderKpis() {
   const week = sumHours(filterEntriesSince(startOfWeek()));
   const month = sumHours(filterEntriesSince(startOfMonth()));
   const total = sumHours(state.timesheet);
-  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val.toFixed(2); };
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = hoursToHM(val); };
   set("ts-today", today);
   set("ts-week", week);
   set("ts-month", month);
@@ -878,13 +917,22 @@ function renderEntriesTable() {
       .join("");
     tr.innerHTML = `
       <td><input data-f="date" type="date" value="${escapeAttr(r.date)}" /></td>
-      <td><input data-f="hours" type="number" min="0" step="0.25" value="${r.hours}" /></td>
+      <td><input data-f="hours" class="hms-input" value="${escapeAttr(hoursToHMS(r.hours))}" placeholder="HH:MM:SS" inputmode="numeric" /></td>
       <td><select data-f="caseId">${caseOptions}</select></td>
       <td><input data-f="employee" value="${escapeAttr(r.employee || "")}" placeholder="Employee" /></td>
       <td><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button></td>`;
     tr.querySelectorAll("input, select").forEach((inp) => {
-      inp.addEventListener("input", (e) => updateEntry(r.id, e.target.dataset.f, e.target.value));
-      inp.addEventListener("change", (e) => updateEntry(r.id, e.target.dataset.f, e.target.value));
+      inp.addEventListener("change", (e) => {
+        updateEntry(r.id, e.target.dataset.f, e.target.value);
+        // Reformat the hours cell back to canonical HH:MM:SS after edit
+        if (e.target.dataset.f === "hours") {
+          const updated = state.timesheet.find((x) => x.id === r.id);
+          if (updated) e.target.value = hoursToHMS(updated.hours);
+        }
+      });
+      if (inp.dataset.f !== "hours") {
+        inp.addEventListener("input", (e) => updateEntry(r.id, e.target.dataset.f, e.target.value));
+      }
     });
     tr.querySelector(".btn.icon").addEventListener("click", () => removeEntry(r.id));
     tbody.appendChild(tr);
