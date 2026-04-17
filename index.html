@@ -3,175 +3,310 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Medical Coding Dashboard</title>
+<title>Medical Coding CRM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <div class="brand-mark">Rx</div>
-    <div>
-      <div class="brand-title">Medical Coding Dashboard</div>
-      <div class="brand-sub">Private · runs in your browser</div>
-    </div>
-  </div>
-  <div class="topbar-actions">
-    <button id="export-all-btn" class="btn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      Export
-    </button>
-    <label class="btn" for="import-all">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      Import
-      <input id="import-all" type="file" accept="application/json" hidden />
-    </label>
-    <button id="new-case-btn" class="btn primary">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      New Case
-    </button>
-  </div>
-</header>
+<div class="app">
 
-<main class="layout">
+  <!-- Sidebar: persistent navigation -->
   <aside class="sidebar">
-    <div class="sidebar-header">
-      <h2>Cases</h2>
-      <span id="case-count" class="sidebar-count">0</span>
+    <div class="brand">
+      <div class="brand-mark">Rx</div>
+      <div>
+        <div class="brand-title">MedCode CRM</div>
+        <div class="brand-sub">Private · local data</div>
+      </div>
     </div>
-    <ul id="case-list" class="case-list"></ul>
+
+    <nav class="nav">
+      <a class="nav-item" data-route="overview" href="#overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span>Overview</span>
+      </a>
+      <a class="nav-item" data-route="cases" href="#cases">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-3 7 3z"/></svg>
+        <span>Cases</span>
+        <span class="nav-count" id="nav-case-count">0</span>
+      </a>
+      <a class="nav-item" data-route="timesheet" href="#timesheet">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Timesheet</span>
+        <span class="nav-dot" id="nav-timer-dot" hidden></span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button id="export-all-btn" class="btn ghost sm">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export data
+      </button>
+      <label class="btn ghost sm" for="import-all">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import data
+        <input id="import-all" type="file" accept="application/json" hidden />
+      </label>
+    </div>
   </aside>
 
-  <section class="content">
-    <div id="empty-state" class="empty-state">
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <h3>No case selected</h3>
-      <p>Click <strong>+ New Case</strong> to create your first patient record.</p>
-    </div>
+  <!-- Main content area -->
+  <main class="main">
 
-    <div id="case-view" class="case-view" hidden>
-      <div class="page-header">
-        <h1 id="case-title">New Case</h1>
-        <div class="page-sub" id="case-subtitle">—</div>
+    <!-- =========================================================== -->
+    <!-- OVERVIEW PAGE                                                -->
+    <!-- =========================================================== -->
+    <section id="page-overview" class="page">
+      <header class="page-header">
+        <div>
+          <h1>Overview</h1>
+          <p class="page-sub">At-a-glance summary of your workload</p>
+        </div>
+      </header>
+
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Total Cases</div>
+          <div class="kpi-value" id="kpi-cases">0</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Hours Today</div>
+          <div class="kpi-value" id="kpi-hours-today">0.00</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Hours This Week</div>
+          <div class="kpi-value" id="kpi-hours-week">0.00</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total CPT Codes</div>
+          <div class="kpi-value" id="kpi-cpts">0</div>
+        </div>
+      </div>
+
+      <div class="overview-grid">
+        <section class="card">
+          <div class="card-head">
+            <h2>Recent Cases</h2>
+            <a href="#cases" class="btn ghost sm">View all</a>
+          </div>
+          <ul id="recent-cases" class="list-plain"></ul>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <h2>Recent Time Entries</h2>
+            <a href="#timesheet" class="btn ghost sm">View all</a>
+          </div>
+          <ul id="recent-entries" class="list-plain"></ul>
+        </section>
+      </div>
+    </section>
+
+    <!-- =========================================================== -->
+    <!-- CASES PAGE                                                   -->
+    <!-- =========================================================== -->
+    <section id="page-cases" class="page" hidden>
+      <header class="page-header">
+        <div>
+          <h1>Cases</h1>
+          <p class="page-sub">Patient records, documents, and CPT codes</p>
+        </div>
+        <div class="page-actions">
+          <button id="new-case-btn" class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Case
+          </button>
+        </div>
+      </header>
+
+      <div class="cases-layout">
+        <aside class="cases-list-panel">
+          <div class="search-row">
+            <input type="text" id="case-search" placeholder="Search cases…" />
+          </div>
+          <ul id="case-list" class="case-list"></ul>
+        </aside>
+
+        <div class="case-detail">
+          <div id="case-empty" class="empty-state">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-3 7 3z"/></svg>
+            <h3>No case selected</h3>
+            <p>Select a case from the list, or click <strong>New Case</strong>.</p>
+          </div>
+
+          <div id="case-view" hidden>
+            <div class="page-header sub">
+              <div>
+                <h2 id="case-title">New Case</h2>
+                <div class="page-sub" id="case-subtitle">—</div>
+              </div>
+              <div class="page-actions">
+                <button id="build-pdf-btn" class="btn primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  Build Case PDF
+                </button>
+              </div>
+            </div>
+
+            <section class="card">
+              <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                Patient Information
+              </h2>
+              <div class="grid two">
+                <label>Patient Name<input data-field="name" type="text" placeholder="Last, First" /></label>
+                <label>Date of Birth<input data-field="dob" type="date" /></label>
+                <label>MRN<input data-field="mrn" type="text" placeholder="Medical Record #" /></label>
+                <label>Date of Service<input data-field="dos" type="date" /></label>
+                <label>Provider<input data-field="provider" type="text" placeholder="Physician name" /></label>
+                <label>Facility<input data-field="facility" type="text" placeholder="Hospital / Clinic" /></label>
+                <label class="full">Notes<textarea data-field="notes" rows="2" placeholder="Case notes"></textarea></label>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  Documents
+                </h2>
+                <div class="card-head-actions">
+                  <label class="btn sm" for="upload-op">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Op Report
+                    <input id="upload-op" type="file" accept="image/*,application/pdf" multiple hidden />
+                  </label>
+                  <label class="btn sm" for="upload-dx">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Diagnostics
+                    <input id="upload-dx" type="file" accept="image/*,application/pdf" multiple hidden />
+                  </label>
+                </div>
+              </div>
+              <div class="doc-columns">
+                <div>
+                  <h3>Operative Report</h3>
+                  <ul id="op-list" class="doc-list"></ul>
+                </div>
+                <div>
+                  <h3>Diagnostics</h3>
+                  <ul id="dx-list" class="doc-list"></ul>
+                </div>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/><path d="M9 11V7a3 3 0 0 1 6 0v4"/></svg>
+                  CPT Codes
+                </h2>
+                <button id="add-cpt-btn" class="btn sm">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add Code
+                </button>
+              </div>
+              <div class="table-wrap">
+                <table class="table" id="cpt-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 110px;">CPT</th>
+                      <th>Description</th>
+                      <th style="width: 110px;">Modifiers</th>
+                      <th style="width: 80px;">Units</th>
+                      <th style="width: 40px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
+            <div class="danger-zone">
+              <div class="dz-text"><strong>Danger zone.</strong> Deleting this case removes all patient data, documents and codes.</div>
+              <button id="delete-case-btn" class="btn danger">Delete Case</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================== -->
+    <!-- TIMESHEET PAGE                                               -->
+    <!-- =========================================================== -->
+    <section id="page-timesheet" class="page" hidden>
+      <header class="page-header">
+        <div>
+          <h1>Timesheet</h1>
+          <p class="page-sub">Clock in, clock out, and track hours by case</p>
+        </div>
+      </header>
+
+      <!-- Clock widget -->
+      <section class="card clock-card">
+        <div class="clock-row">
+          <div class="clock-display">
+            <div class="clock-state" id="clock-state">Not clocked in</div>
+            <div class="clock-timer" id="clock-timer">00:00:00</div>
+          </div>
+          <div class="clock-controls">
+            <label>Task<input type="text" id="timer-task" placeholder="What are you working on?" /></label>
+            <label>Case (optional)
+              <select id="timer-case"><option value="">— None —</option></select>
+            </label>
+            <button id="clock-btn" class="btn primary lg">Clock In</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Today</div>
+          <div class="kpi-value" id="ts-today">0.00</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">This Week</div>
+          <div class="kpi-value" id="ts-week">0.00</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">This Month</div>
+          <div class="kpi-value" id="ts-month">0.00</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">All Time</div>
+          <div class="kpi-value" id="ts-total">0.00</div>
+        </div>
       </div>
 
       <section class="card">
-        <h2>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          Patient Information
-        </h2>
-        <div class="grid two">
-          <label>Patient Name<input data-field="name" type="text" placeholder="Last, First" /></label>
-          <label>Date of Birth<input data-field="dob" type="date" /></label>
-          <label>MRN<input data-field="mrn" type="text" placeholder="Medical Record #" /></label>
-          <label>Date of Service<input data-field="dos" type="date" /></label>
-          <label>Provider<input data-field="provider" type="text" placeholder="Physician name" /></label>
-          <label>Facility<input data-field="facility" type="text" placeholder="Hospital / Clinic" /></label>
-          <label class="full">Notes<textarea data-field="notes" rows="2" placeholder="Case notes"></textarea></label>
-        </div>
-      </section>
-
-      <section class="card">
         <div class="card-head">
-          <h2>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            Documents
-          </h2>
-          <div class="card-head-actions">
-            <label class="btn" for="upload-op">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Upload Op Report
-              <input id="upload-op" type="file" accept="image/*,application/pdf" multiple hidden />
-            </label>
-            <label class="btn" for="upload-dx">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Upload Diagnostics
-              <input id="upload-dx" type="file" accept="image/*,application/pdf" multiple hidden />
-            </label>
-            <button id="build-pdf-btn" class="btn primary">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="10" y2="18"/><line x1="14" y1="13" x2="14" y2="18"/></svg>
-              Build PDF
-            </button>
-          </div>
-        </div>
-        <div class="doc-columns">
-          <div>
-            <h3>Operative Report</h3>
-            <ul id="op-list" class="doc-list"></ul>
-          </div>
-          <div>
-            <h3>Diagnostics</h3>
-            <ul id="dx-list" class="doc-list"></ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <h2>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/><path d="M9 11V7a3 3 0 0 1 6 0v4"/></svg>
-            CPT Codes
-          </h2>
-          <button id="add-cpt-btn" class="btn sm">
+          <h2>Time Entries</h2>
+          <button id="add-entry-btn" class="btn sm">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add Code
+            Add Manual Entry
           </button>
         </div>
         <div class="table-wrap">
-          <table class="table" id="cpt-table">
-            <thead>
-              <tr>
-                <th style="width: 110px;">CPT</th>
-                <th>Description</th>
-                <th style="width: 110px;">Modifiers</th>
-                <th style="width: 80px;">Units</th>
-                <th style="width: 40px;"></th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <h2>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            Hours Tracked
-          </h2>
-          <button id="add-hours-btn" class="btn sm">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Log Time
-          </button>
-        </div>
-        <div class="table-wrap">
-          <table class="table" id="hours-table">
+          <table class="table" id="entries-table">
             <thead>
               <tr>
                 <th style="width: 150px;">Date</th>
-                <th style="width: 100px;">Hours</th>
+                <th style="width: 90px;">Hours</th>
                 <th>Task</th>
+                <th>Case</th>
                 <th style="width: 40px;"></th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
-        <div class="hours-summary">
-          <span>Total time logged on this case</span>
-          <span class="total-value"><span id="hours-total">0.00</span> hrs</span>
-        </div>
       </section>
+    </section>
 
-      <div class="danger-zone">
-        <div class="dz-text"><strong>Danger zone.</strong> Deleting this case removes all patient data, documents, codes, and hours.</div>
-        <button id="delete-case-btn" class="btn danger">Delete Case</button>
-      </div>
-    </div>
-  </section>
-</main>
+  </main>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="app.js"></script>
