@@ -289,27 +289,222 @@ function renderNavBadges() {
 }
 
 /* ---------- Overview ---------- */
+function caseStatus(c) {
+  const hasCpts = c.cpts.length > 0;
+  const hasDocs = c.opDocs.length + c.dxDocs.length > 0;
+  const hasCore = c.patient.name && c.patient.dos;
+  if (hasCpts && hasCore) return { key: "complete", label: "Complete" };
+  if (hasCpts || hasDocs || hasCore) return { key: "review", label: "In Review" };
+  return { key: "new", label: "New" };
+}
+
+function initialsOf(name) {
+  const clean = (name || "").trim();
+  if (!clean) return "??";
+  const parts = clean.replace(",", " ").split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function hoursByDay() {
+  const map = {};
+  for (const e of state.timesheet) {
+    map[e.date] = (map[e.date] || 0) + (Number(e.hours) || 0);
+  }
+  return map;
+}
+
+function pctTrend(curr, prev) {
+  if (prev === 0 && curr === 0) return { cls: "flat", pct: "0%" };
+  if (prev === 0) return { cls: "up", pct: "+100%" };
+  const diff = ((curr - prev) / prev) * 100;
+  if (Math.abs(diff) < 0.5) return { cls: "flat", pct: "0%" };
+  const sign = diff > 0 ? "+" : "";
+  return { cls: diff > 0 ? "up" : "down", pct: `${sign}${diff.toFixed(0)}%` };
+}
+
+function setTrendChip(id, trend) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = `trend-chip ${trend.cls}`;
+  const icon = trend.cls === "up"
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>'
+    : trend.cls === "down"
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+  el.innerHTML = `${icon}<span>${trend.pct}</span>`;
+}
+
+function renderTrends() {
+  const now = Date.now();
+  const day = 86400000;
+  const last7Cases = state.cases.filter((c) => new Date(c.createdAt).getTime() >= now - 7 * day).length;
+  const prev7Cases = state.cases.filter((c) => {
+    const t = new Date(c.createdAt).getTime();
+    return t >= now - 14 * day && t < now - 7 * day;
+  }).length;
+  setTrendChip("trend-cases", pctTrend(last7Cases, prev7Cases));
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const yKey = new Date(Date.now() - day).toISOString().slice(0, 10);
+  const byDay = hoursByDay();
+  setTrendChip("trend-today", pctTrend(byDay[todayKey] || 0, byDay[yKey] || 0));
+
+  const weekStart = startOfWeek();
+  const lastWeekStart = new Date(weekStart); lastWeekStart.setDate(weekStart.getDate() - 7);
+  const thisWeekH = sumHours(filterEntriesSince(weekStart));
+  const lastWeekH = state.timesheet
+    .filter((e) => { const t = new Date(e.date); return t >= lastWeekStart && t < weekStart; })
+    .reduce((s, e) => s + (Number(e.hours) || 0), 0);
+  setTrendChip("trend-week", pctTrend(thisWeekH, lastWeekH));
+
+  const docCount = state.cases.reduce((s, c) => s + c.opDocs.length + c.dxDocs.length, 0);
+  const sub = document.getElementById("kpi-docs-sub");
+  if (sub) sub.textContent = `${docCount} document${docCount === 1 ? "" : "s"} across all cases`;
+}
+
+function renderHoursChart() {
+  const container = document.getElementById("chart-hours");
+  if (!container) return;
+  const W = Math.max(320, container.clientWidth || 640);
+  const H = 200;
+  const padT = 14, padB = 28, padL = 34, padR = 12;
+  const cw = W - padL - padR;
+  const ch = H - padT - padB;
+
+  const byDay = hoursByDay();
+  const today = startOfToday();
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today); d.setDate(today.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    days.push({ date: d, key, hours: byDay[key] || 0 });
+  }
+
+  const total = days.reduce((s, d) => s + d.hours, 0);
+  const totalEl = document.getElementById("chart-total");
+  if (totalEl) totalEl.textContent = `${total.toFixed(2)}h`;
+
+  const max = Math.max(2, ...days.map((d) => d.hours));
+  const stepX = cw / (days.length - 1);
+  const pts = days.map((d, i) => ({
+    ...d,
+    x: padL + i * stepX,
+    y: padT + ch - (d.hours / max) * ch,
+  }));
+
+  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const area = `${line} L ${pts[pts.length - 1].x.toFixed(1)} ${(padT + ch).toFixed(1)} L ${pts[0].x.toFixed(1)} ${(padT + ch).toFixed(1)} Z`;
+
+  const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const grid = [0, 0.25, 0.5, 0.75, 1]
+    .map((f) => `<line class="chart-grid" x1="${padL}" y1="${(padT + ch * f).toFixed(1)}" x2="${W - padR}" y2="${(padT + ch * f).toFixed(1)}"/>`)
+    .join("");
+  const yLabels = [0, 0.5, 1]
+    .map((f) => {
+      const y = padT + ch - ch * f;
+      return `<text class="chart-axis-label" x="${padL - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end">${(max * f).toFixed(1)}</text>`;
+    })
+    .join("");
+  const xLabels = pts
+    .map((p) => `<text class="chart-axis-label" x="${p.x.toFixed(1)}" y="${H - 8}" text-anchor="middle">${wd[p.date.getDay()]}</text>`)
+    .join("");
+  const dots = pts
+    .map((p) => `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4"><title>${wd[p.date.getDay()]} · ${p.hours.toFixed(2)}h</title></circle>`)
+    .join("");
+
+  container.innerHTML = `
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      <defs>
+        <linearGradient id="chartGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#6366f1"/>
+          <stop offset="100%" stop-color="#a855f7"/>
+        </linearGradient>
+        <linearGradient id="chartArea" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.28"/>
+          <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.02"/>
+        </linearGradient>
+      </defs>
+      ${grid}
+      ${yLabels}
+      <path class="chart-area" d="${area}"/>
+      <path class="chart-line" d="${line}"/>
+      ${dots}
+      ${xLabels}
+    </svg>`;
+}
+
+function renderStatusTable() {
+  const tbody = document.querySelector("#status-table tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const rows = state.cases.slice(0, 6);
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No cases yet. Click "New Case" to start.</td></tr>';
+    return;
+  }
+  rows.forEach((c, i) => {
+    const s = caseStatus(c);
+    const tr = document.createElement("tr");
+    tr.style.cursor = "pointer";
+    tr.innerHTML = `
+      <td>${String(i + 1).padStart(2, "0")}</td>
+      <td><strong>${escapeHtml(caseLabel(c))}</strong>${c.patient.mrn ? `<div class="muted" style="font-size:11px;color:var(--text-subtle);">MRN ${escapeHtml(c.patient.mrn)}</div>` : ""}</td>
+      <td>${escapeHtml(c.patient.dos || "—")}</td>
+      <td>${c.cpts.length}</td>
+      <td><span class="status ${s.key}">${s.label}</span></td>`;
+    tr.addEventListener("click", () => {
+      state.activeId = c.id;
+      save();
+      navigate("cases");
+    });
+    tbody.appendChild(tr);
+  });
+}
+
 function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
   document.getElementById("kpi-hours-today").textContent = sumHours(filterEntriesSince(startOfToday())).toFixed(2);
   document.getElementById("kpi-hours-week").textContent = sumHours(filterEntriesSince(startOfWeek())).toFixed(2);
   document.getElementById("kpi-cpts").textContent = state.cases.reduce((s, c) => s + c.cpts.length, 0);
 
+  renderTrends();
+  renderHoursChart();
+  renderStatusTable();
+
+  const welcome = document.getElementById("welcome-sub");
+  if (welcome) {
+    const h = new Date().getHours();
+    const greet = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    welcome.textContent = `${greet} — here's where things stand today.`;
+  }
+
   const recentCases = document.getElementById("recent-cases");
   recentCases.innerHTML = "";
   const list = state.cases.slice(0, 5);
   if (!list.length) {
-    recentCases.innerHTML = '<li class="empty">No cases yet.</li>';
+    recentCases.innerHTML = '<li class="empty">No cases yet. Create your first one from the top bar.</li>';
   } else {
     for (const c of list) {
+      const s = caseStatus(c);
       const li = document.createElement("li");
+      li.style.cursor = "pointer";
+      const dateStr = c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10);
       li.innerHTML = `
-        <div>
-          <div>${escapeHtml(caseLabel(c))}</div>
-          <div class="muted">${escapeHtml(c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10))} · ${c.cpts.length} CPT</div>
+        <div class="avatar-sm">${escapeHtml(initialsOf(c.patient.name))}</div>
+        <div class="ib-main">
+          <div class="ib-title">${escapeHtml(caseLabel(c))}</div>
+          <div class="ib-sub">${escapeHtml(c.patient.provider || c.patient.facility || "No provider")} · ${c.cpts.length} CPT · ${c.opDocs.length + c.dxDocs.length} docs</div>
         </div>
-        <a href="#cases" class="btn ghost sm">Open</a>`;
-      li.querySelector("a").addEventListener("click", () => { state.activeId = c.id; save(); });
+        <div class="ib-meta">
+          <span class="status ${s.key}">${s.label}</span>
+          <div style="margin-top:4px;">${escapeHtml(dateStr)}</div>
+        </div>`;
+      li.addEventListener("click", () => {
+        state.activeId = c.id;
+        save();
+        navigate("cases");
+      });
       recentCases.appendChild(li);
     }
   }
@@ -318,7 +513,7 @@ function renderOverview() {
   recentEntries.innerHTML = "";
   const entries = state.timesheet.slice(0, 5);
   if (!entries.length) {
-    recentEntries.innerHTML = '<li class="empty">No time entries yet.</li>';
+    recentEntries.innerHTML = '<li class="empty">No time entries yet. Clock in on the Timesheet page.</li>';
   } else {
     for (const e of entries) {
       const c = state.cases.find((x) => x.id === e.caseId);
@@ -383,6 +578,13 @@ function renderCaseDetail() {
   if (c.patient.dos) subParts.push(`DOS ${c.patient.dos}`);
   if (c.patient.provider) subParts.push(c.patient.provider);
   document.getElementById("case-subtitle").textContent = subParts.length ? subParts.join(" · ") : "Fill in patient info below.";
+
+  const statusEl = document.getElementById("case-status");
+  if (statusEl) {
+    const s = caseStatus(c);
+    statusEl.className = `status ${s.key}`;
+    statusEl.textContent = s.label;
+  }
 
   document.querySelectorAll("[data-field]").forEach((el) => { el.value = c.patient[el.dataset.field] || ""; });
   renderDocList("op-list", c.opDocs, "op");
@@ -635,12 +837,27 @@ async function importAll(file) {
 ================================================================= */
 function bindEvents() {
   window.addEventListener("hashchange", onRouteChange);
+  window.addEventListener("resize", () => {
+    if (currentRoute() === "overview") renderHoursChart();
+  });
 
   document.querySelectorAll(".nav-item").forEach((n) => {
     n.addEventListener("click", (e) => { /* default anchor behavior sets hash */ });
   });
 
   document.getElementById("new-case-btn").addEventListener("click", createCase);
+  const topNew = document.getElementById("top-new-case");
+  if (topNew) topNew.addEventListener("click", createCase);
+  const topSearch = document.getElementById("top-search");
+  if (topSearch) {
+    topSearch.addEventListener("input", (e) => {
+      state.caseSearch = e.target.value;
+      if (currentRoute() !== "cases") navigate("cases");
+      const s = document.getElementById("case-search");
+      if (s) s.value = e.target.value;
+      renderCaseList();
+    });
+  }
   document.getElementById("export-all-btn").addEventListener("click", exportAll);
   document.getElementById("import-all").addEventListener("change", (e) => {
     if (e.target.files[0]) importAll(e.target.files[0]);
