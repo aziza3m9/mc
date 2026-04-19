@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=21" />
+<link rel="stylesheet" href="styles.css?v=22" />
 </head>
 <body>
 <div class="app">
@@ -51,6 +51,10 @@
         <input id="global-search" type="text" placeholder="Search cases, patients, MRN…" />
       </div>
       <div class="topbar-meta">
+        <a class="topbar-link" href="productivity.html" title="Productivity dashboard">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="12" width="3" height="6"/><rect x="11" y="8" width="3" height="10"/><rect x="16" y="4" width="3" height="14"/></svg>
+          <span>Productivity</span>
+        </a>
         <div class="topbar-date" id="topbar-date">—</div>
         <div class="topbar-user" title="Signed in as Clarence">
           <span class="topbar-avatar">CL</span>
@@ -70,12 +74,18 @@
         </div>
       </header>
 
-      <div class="kpi-grid kpi-grid-3">
+      <div class="kpi-grid">
         <div class="kpi">
           <div class="kpi-label">Total Cases</div>
           <div class="kpi-value" id="kpi-cases">0</div>
           <div class="kpi-trend flat" id="trend-cases">—</div>
           <span class="kpi-trend-note">New this week</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Charts Coded Today</div>
+          <div class="kpi-value" id="kpi-coded-today">0</div>
+          <div class="kpi-trend flat" id="trend-coded-today">—</div>
+          <span class="kpi-trend-note">vs. yesterday</span>
         </div>
         <div class="kpi">
           <div class="kpi-label">Hours Today</div>
@@ -404,6 +414,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>
