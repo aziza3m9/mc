@@ -587,16 +587,33 @@ function renderProductivity() {
   const completed = state.cases.filter((c) => c.status === "complete" && c.completedAt);
 
   const codedToday = completed.filter((c) => new Date(c.completedAt) >= today0).length;
-  const codedWeek = completed.filter((c) => new Date(c.completedAt) >= weekStart).length;
-  const codedMonth = completed.filter((c) => new Date(c.completedAt) >= monthAgo).length;
-  const hoursMonth = sumHours(state.timesheet.filter((e) => new Date(e.date) >= monthAgo));
-  const hoursPerCase = codedMonth > 0 ? hoursMonth / codedMonth : 0;
-  const casesPerHour = hoursMonth > 0 ? codedMonth / hoursMonth : 0;
+
+  // Time entries tie directly into productivity: a case is "worked" once
+  // any time entry for it lands in the window. Aggregate hours per case
+  // from the timesheet so we can rank them and compute real averages.
+  const monthEntries = state.timesheet.filter((e) => e.caseId && new Date(e.date) >= monthAgo);
+  const weekEntries = state.timesheet.filter((e) => e.caseId && new Date(e.date) >= weekStart);
+
+  const hoursByCaseMonth = {};
+  const entriesByCaseMonth = {};
+  for (const e of monthEntries) {
+    hoursByCaseMonth[e.caseId] = (hoursByCaseMonth[e.caseId] || 0) + (Number(e.hours) || 0);
+    entriesByCaseMonth[e.caseId] = (entriesByCaseMonth[e.caseId] || 0) + 1;
+  }
+  const workedCasesMonth = Object.keys(hoursByCaseMonth).length;
+  const hoursMonth = Object.values(hoursByCaseMonth).reduce((s, h) => s + h, 0);
+
+  const workedCasesWeek = new Set(weekEntries.map((e) => e.caseId)).size;
+
+  const hoursPerCase = workedCasesMonth > 0 ? hoursMonth / workedCasesMonth : 0;
+  const casesPerHour = hoursMonth > 0 ? workedCasesMonth / hoursMonth : 0;
 
   document.getElementById("p-coded-today").textContent = codedToday;
-  document.getElementById("p-coded-week").textContent = codedWeek;
+  document.getElementById("p-worked-week").textContent = workedCasesWeek;
   document.getElementById("p-hours-per-case").textContent = hoursPerCase.toFixed(2);
   document.getElementById("p-cases-per-hour").textContent = casesPerHour.toFixed(2);
+
+  renderHoursByCase(hoursByCaseMonth, entriesByCaseMonth);
 
   const days = [];
   for (let i = 13; i >= 0; i--) {
@@ -626,6 +643,47 @@ function renderProductivity() {
         <span class="lb-stat">${n} chart${n === 1 ? "" : "s"}</span>
       </li>`).join("");
   }
+}
+
+function renderHoursByCase(hoursByCase, entriesByCase) {
+  const tbody = document.querySelector("#p-hours-by-case tbody");
+  const countEl = document.getElementById("p-cases-worked-30");
+  if (!tbody) return;
+  const ids = Object.keys(hoursByCase);
+  if (countEl) countEl.textContent = String(ids.length);
+  if (!ids.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No cases with logged time in the last 30 days. Pick a case in the Timesheet clock so entries link to it.</td></tr>';
+    return;
+  }
+  const rows = ids
+    .map((id) => {
+      const c = state.cases.find((x) => x.id === id);
+      return {
+        id,
+        c,
+        hours: hoursByCase[id],
+        entries: entriesByCase[id] || 0,
+      };
+    })
+    .sort((a, b) => b.hours - a.hours);
+
+  tbody.innerHTML = rows.map((r) => {
+    const meta = r.c ? (STATUS_META[r.c.status] || STATUS_META.coding) : null;
+    const name = r.c ? caseLabel(r.c) : `Deleted case ${r.id.slice(-4)}`;
+    const account = r.c?.account || "—";
+    const status = meta
+      ? `<span class="status-pill ${meta.tone}">${meta.label}</span>`
+      : '<span class="status-pill mute">—</span>';
+    const link = r.c ? `<a href="#case/${r.c.id}">${escapeHtml(name)}</a>` : escapeHtml(name);
+    return `
+      <tr>
+        <td>${link}</td>
+        <td>${escapeHtml(account)}</td>
+        <td>${status}</td>
+        <td style="text-align: right; font-variant-numeric: tabular-nums;">${r.entries}</td>
+        <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--gold-hover);">${hoursToHMS(r.hours)}</td>
+      </tr>`;
+  }).join("");
 }
 
 function renderProdBars(days) {
