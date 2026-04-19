@@ -1,11 +1,20 @@
 const STORAGE_KEY = "mc_dashboard_v2";
+const DEFAULT_USER = "Clarence";
 
 const state = {
   cases: [],
   activeId: null,
-  timesheet: [],   // {id, date, hours, task, caseId}
-  activeTimer: null, // {startedAt, task, caseId}
+  timesheet: [],   // {id, date, hours, caseId}
+  activeTimer: null, // {startedAt, caseId}
   caseSearch: "",
+  caseStatusFilter: "coding", // coding | review | complete
+  calendarMonth: null,        // "YYYY-MM" (null = current month)
+};
+
+const STATUS_META = {
+  coding:   { label: "Coding",    tone: "amber"   },
+  review:   { label: "In Review", tone: "emerald" },
+  complete: { label: "Complete",  tone: "mute"    },
 };
 
 let timerInterval = null;
@@ -41,6 +50,18 @@ function load() {
     }
   } catch (e) { console.warn("Failed to load", e); }
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
+  // Backfill new case fields on previously-stored data.
+  for (const c of state.cases) {
+    if (!c.status) c.status = "coding";
+    if (typeof c.assignee !== "string") c.assignee = "";
+    if (typeof c.dueDate !== "string") c.dueDate = "";
+  }
+  for (const e of state.timesheet) {
+    if (typeof e.employee !== "string") e.employee = "";
+  }
+  // Normalize filter: migrate old "all" value and any unknown value to "coding".
+  const validFilters = ["coding", "review", "complete"];
+  if (!validFilters.includes(state.caseStatusFilter)) state.caseStatusFilter = "coding";
 }
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -61,21 +82,23 @@ function createCase() {
     createdAt: new Date().toISOString(),
     patient: { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" },
     opDocs: [], dxDocs: [], cpts: [],
+    status: "coding",
+    assignee: DEFAULT_USER,
+    dueDate: "",
   };
   state.cases.unshift(c);
   state.activeId = c.id;
   save();
-  navigate("cases");
-  render();
+  navigate(`case/${c.id}`);
 }
 
 function deleteCase(id) {
   if (!confirm("Delete this case permanently? Time entries tied to it will remain but lose the case link.")) return;
   state.cases = state.cases.filter((c) => c.id !== id);
   for (const e of state.timesheet) if (e.caseId === id) e.caseId = "";
-  if (state.activeId === id) state.activeId = state.cases[0]?.id || null;
+  if (state.activeId === id) state.activeId = null;
   save();
-  render();
+  navigate("cases");
 }
 
 function caseLabel(c) {
@@ -95,13 +118,76 @@ function fileToDataURL(file) {
   });
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function imagesToPdfDataUrl(files) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 24;
+  let first = true;
+  for (const file of files) {
+    const dataUrl = await fileToDataURL(file);
+    const dims = await getImageDimensions(dataUrl);
+    if (!first) doc.addPage();
+    first = false;
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+    const ratio = Math.min(maxW / dims.w, maxH / dims.h);
+    const w = dims.w * ratio;
+    const h = dims.h * ratio;
+    const x = (pageW - w) / 2;
+    const y = (pageH - h) / 2;
+    const fmt = file.type.includes("png") ? "PNG" : "JPEG";
+    try { doc.addImage(dataUrl, fmt, x, y, w, h); }
+    catch (e) { console.warn("Could not embed image", file.name, e); }
+  }
+  // Use FileReader on the Blob output — gives a clean
+  // "data:application/pdf;base64,..." with no filename= param that
+  // previously confused the parser and the browser.
+  return blobToDataUrl(doc.output("blob"));
+}
+
 async function addDocs(kind, fileList) {
   const c = getActive();
   if (!c) return;
   const target = kind === "op" ? c.opDocs : c.dxDocs;
-  for (const file of fileList) {
-    const dataUrl = await fileToDataURL(file);
-    target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+  const files = Array.from(fileList);
+
+  if (kind === "op") {
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    const others = files.filter((f) => !f.type.startsWith("image/"));
+
+    if (images.length) {
+      const dataUrl = await imagesToPdfDataUrl(images);
+      const base = images.length === 1
+        ? images[0].name.replace(/\.[^.]+$/, "")
+        : `operative-report-${new Date().toISOString().slice(0, 10)}`;
+      target.push({
+        id: uid(),
+        name: `${base}.pdf`,
+        type: "application/pdf",
+        size: Math.floor((dataUrl.length - "data:application/pdf;base64,".length) * 3 / 4),
+        dataUrl,
+      });
+    }
+    for (const file of others) {
+      const dataUrl = await fileToDataURL(file);
+      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+    }
+  } else {
+    for (const file of files) {
+      const dataUrl = await fileToDataURL(file);
+      target.push({ id: uid(), name: file.name, type: file.type, size: file.size, dataUrl });
+    }
   }
   save();
   render();
@@ -145,9 +231,9 @@ function removeCpt(id) {
 ================================================================= */
 function clockIn() {
   if (state.activeTimer) return;
-  const task = document.getElementById("timer-task").value.trim();
   const caseId = document.getElementById("timer-case").value;
-  state.activeTimer = { startedAt: Date.now(), task, caseId };
+  const employee = document.getElementById("timer-employee").value.trim();
+  state.activeTimer = { startedAt: Date.now(), caseId, employee };
   save();
   renderTimesheet();
   renderNavBadges();
@@ -158,14 +244,14 @@ function clockOut() {
   const t = state.activeTimer;
   if (!t) return;
   const elapsedMs = Date.now() - t.startedAt;
-  const hours = +(elapsedMs / 3600000).toFixed(4);
+  const hours = +(elapsedMs / 3600000).toFixed(6);
   if (hours > 0) {
     state.timesheet.unshift({
       id: uid(),
       date: new Date(t.startedAt).toISOString().slice(0, 10),
       hours,
-      task: t.task,
       caseId: t.caseId || "",
+      employee: t.employee || "",
     });
   }
   state.activeTimer = null;
@@ -209,26 +295,65 @@ function updateTimerDisplay() {
   }
 }
 function formatDuration(ms) {
-  const s = Math.floor(ms / 1000);
+  const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
+// Convert a fractional-hour value to "HH:MM:SS".
+function hoursToHMS(hours) {
+  const totalSec = Math.max(0, Math.round((Number(hours) || 0) * 3600));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+// Convert a fractional-hour value to a shorter "HH:MM" display.
+function hoursToHM(hours) {
+  const totalMin = Math.max(0, Math.round((Number(hours) || 0) * 60));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Parse "H:MM", "H:MM:SS", or a decimal number into fractional hours.
+// Returns NaN if the input can't be read.
+function parseHoursInput(raw) {
+  if (raw == null) return NaN;
+  const str = String(raw).trim();
+  if (!str) return 0;
+  if (str.includes(":")) {
+    const parts = str.split(":").map((p) => Number(p));
+    if (parts.some((n) => Number.isNaN(n) || n < 0)) return NaN;
+    const [h = 0, m = 0, s = 0] = parts;
+    return h + m / 60 + s / 3600;
+  }
+  const n = Number(str);
+  return Number.isNaN(n) ? NaN : n;
+}
+
 function addManualEntry() {
   const today = new Date().toISOString().slice(0, 10);
-  state.timesheet.unshift({ id: uid(), date: today, hours: 0, task: "", caseId: "" });
+  state.timesheet.unshift({ id: uid(), date: today, hours: 0, caseId: "", employee: "" });
   save();
   renderTimesheet();
 }
 function updateEntry(id, field, value) {
   const row = state.timesheet.find((r) => r.id === id);
   if (!row) return;
-  row[field] = field === "hours" ? Number(value) || 0 : value;
+  if (field === "hours") {
+    const parsed = parseHoursInput(value);
+    row.hours = Number.isNaN(parsed) ? row.hours : +parsed.toFixed(6);
+  } else {
+    row[field] = value;
+  }
   save();
   renderKpis();
   renderNavBadges();
+  renderCalendar();
 }
 function removeEntry(id) {
   state.timesheet = state.timesheet.filter((r) => r.id !== id);
@@ -253,24 +378,56 @@ function startOfMonth() { const d = startOfToday(); d.setDate(1); return d; }
 function filterEntriesSince(cutoff) {
   return state.timesheet.filter((e) => new Date(e.date) >= cutoff);
 }
+function filterEntriesBetween(fromInclusive, toExclusive) {
+  return state.timesheet.filter((e) => {
+    const d = new Date(e.date);
+    return d >= fromInclusive && d < toExclusive;
+  });
+}
+function ymd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 /* =================================================================
    ROUTING
+   Routes:
+     #overview         → overview page
+     #cases            → gallery of all cases
+     #case/:id         → detail/edit view for one case (stable URL)
+     #timesheet        → timesheet page
 ================================================================= */
-function currentRoute() {
-  const h = (location.hash || "#overview").replace("#", "");
-  return ["overview", "cases", "timesheet"].includes(h) ? h : "overview";
+function parseRoute() {
+  const raw = (location.hash || "#overview").replace(/^#/, "");
+  const [head, id] = raw.split("/");
+  if (head === "case" && id) return { name: "case", id };
+  if (["overview", "cases", "timesheet"].includes(head)) return { name: head, id: null };
+  return { name: "overview", id: null };
 }
 function navigate(route) { location.hash = route; }
 function onRouteChange() {
-  const r = currentRoute();
-  document.querySelectorAll(".page").forEach((p) => { p.hidden = p.id !== `page-${r}`; });
+  const r = parseRoute();
+
+  const pageId = r.name === "case" ? "page-case" : `page-${r.name}`;
+  document.querySelectorAll(".page").forEach((p) => { p.hidden = p.id !== pageId; });
+
+  const navKey = r.name === "case" ? "cases" : r.name;
   document.querySelectorAll(".nav-item").forEach((n) => {
-    n.classList.toggle("active", n.dataset.route === r);
+    n.classList.toggle("active", n.dataset.route === navKey);
   });
-  if (r === "overview") renderOverview();
-  if (r === "cases") renderCasesPage();
-  if (r === "timesheet") renderTimesheet();
+
+  if (r.name === "overview") renderOverview();
+  if (r.name === "cases") renderCasesIndex();
+  if (r.name === "case") {
+    const exists = state.cases.some((c) => c.id === r.id);
+    if (!exists) { navigate("cases"); return; }
+    state.activeId = r.id;
+    save();
+    renderCaseDetail();
+  }
+  if (r.name === "timesheet") renderTimesheet();
 }
 
 /* =================================================================
@@ -288,12 +445,175 @@ function renderNavBadges() {
   if (dot) dot.hidden = !state.activeTimer;
 }
 
+function renderTopbar() {
+  const dateEl = document.getElementById("topbar-date");
+  if (!dateEl) return;
+  const now = new Date();
+  dateEl.textContent = now.toLocaleDateString(undefined, {
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+  });
+}
+
+/* ---------- Trend chips ---------- */
+const ARROW_UP   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>`;
+const ARROW_DOWN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+const DASH_ICON  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+
+function setTrendChip(el, current, previous, { unit = "", mode = "percent" } = {}) {
+  if (!el) return;
+  const hasPrev = Number.isFinite(previous);
+  let cls = "flat", icon = DASH_ICON, label;
+  if (!hasPrev || (previous === 0 && current === 0)) {
+    label = "No change";
+  } else if (previous === 0 && current > 0) {
+    cls = "up"; icon = ARROW_UP; label = `+${current.toFixed(unit === "h" ? 2 : 0)}${unit} new`;
+  } else {
+    const diff = current - previous;
+    if (Math.abs(diff) < 1e-6) { label = "Even"; }
+    else if (mode === "percent") {
+      const pct = (diff / Math.abs(previous)) * 100;
+      cls = diff > 0 ? "up" : "down";
+      icon = diff > 0 ? ARROW_UP : ARROW_DOWN;
+      label = `${diff > 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%`;
+    } else {
+      cls = diff > 0 ? "up" : "down";
+      icon = diff > 0 ? ARROW_UP : ARROW_DOWN;
+      label = `${diff > 0 ? "+" : "−"}${Math.abs(diff).toFixed(unit === "h" ? 2 : 0)}${unit}`;
+    }
+  }
+  el.className = `kpi-trend ${cls}`;
+  el.innerHTML = `${icon}<span>${label}</span>`;
+}
+
+function computeKpiTrends() {
+  const now = new Date();
+  const today0 = startOfToday();
+  const weekStart = startOfWeek();
+  const prevWeekStart = new Date(weekStart); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+  const yesterday = new Date(today0); yesterday.setDate(yesterday.getDate() - 1);
+
+  const weekAgo = new Date(today0); weekAgo.setDate(weekAgo.getDate() - 7);
+  const casesAddedThisWeek = state.cases.filter((c) => new Date(c.createdAt) >= weekStart).length;
+  const casesAddedPrevWeek = state.cases.filter((c) => {
+    const d = new Date(c.createdAt);
+    return d >= prevWeekStart && d < weekStart;
+  }).length;
+
+  const hoursToday = sumHours(filterEntriesSince(today0));
+  const hoursYesterday = sumHours(filterEntriesBetween(yesterday, today0));
+  const hoursThisWeek = sumHours(filterEntriesSince(weekStart));
+  const hoursPrevWeek = sumHours(filterEntriesBetween(prevWeekStart, weekStart));
+
+  setTrendChip(document.getElementById("trend-cases"), casesAddedThisWeek, casesAddedPrevWeek, { unit: "", mode: "delta" });
+  setTrendChip(document.getElementById("trend-hours-today"), hoursToday, hoursYesterday, { unit: "h", mode: "percent" });
+  setTrendChip(document.getElementById("trend-hours-week"), hoursThisWeek, hoursPrevWeek, { unit: "h", mode: "percent" });
+}
+
+/* ---------- Overview chart (last 7 days, inline SVG) ---------- */
+function renderChart() {
+  const wrap = document.getElementById("chart-wrap");
+  const totalEl = document.getElementById("chart-total");
+  if (!wrap) return;
+
+  const today0 = startOfToday();
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today0); d.setDate(d.getDate() - i);
+    const key = ymd(d);
+    const hours = sumHours(state.timesheet.filter((e) => e.date === key));
+    days.push({ date: d, key, hours, isToday: i === 0 });
+  }
+  const total = days.reduce((s, d) => s + d.hours, 0);
+  if (totalEl) totalEl.textContent = `${total.toFixed(2)}h`;
+
+  if (total === 0) {
+    wrap.innerHTML = '<div class="chart-empty">No hours logged in the last 7 days.</div>';
+    return;
+  }
+
+  const W = 720, H = 180;
+  const padL = 24, padR = 16, padT = 16, padB = 30;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.hours), 1);
+  const step = plotW / (days.length - 1);
+  const points = days.map((d, i) => {
+    const x = padL + i * step;
+    const y = padT + plotH - (d.hours / max) * plotH;
+    return { ...d, x, y };
+  });
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L ${points[points.length-1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${points[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+
+  const gridLines = [0.25, 0.5, 0.75].map((t) => {
+    const y = padT + plotH * t;
+    return `<line class="chart-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  const dots = points.map((p) => `<circle class="chart-dot${p.isToday ? ' today' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isToday ? 5 : 3.5}"/>`).join("");
+  const xLabels = points.map((p) => {
+    const d = p.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3).toUpperCase();
+    return `<text class="chart-axis-label" x="${p.x.toFixed(1)}" y="${H - 8}">${d}</text>`;
+  }).join("");
+  const valueLabels = points.map((p) => p.hours > 0
+    ? `<text class="chart-value-label" x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}">${p.hours.toFixed(1)}</text>`
+    : ""
+  ).join("");
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"  stop-color="#9333ea" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#9333ea" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${gridLines}
+      <path class="chart-area" d="${areaPath}"/>
+      <path class="chart-line" d="${linePath}"/>
+      ${dots}
+      ${valueLabels}
+      ${xLabels}
+    </svg>`;
+}
+
 /* ---------- Overview ---------- */
+function renderDueToday() {
+  const ul = document.getElementById("due-today");
+  const dateEl = document.getElementById("due-today-date");
+  if (!ul) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (dateEl) {
+    const d = new Date();
+    dateEl.textContent = d.toLocaleDateString(undefined, {
+      weekday: "long", month: "long", day: "numeric",
+    });
+  }
+  const due = state.cases.filter((c) => c.dueDate === today && c.status !== "complete");
+  ul.innerHTML = "";
+  if (!due.length) {
+    ul.innerHTML = '<li class="empty">Nothing due today.</li>';
+    return;
+  }
+  for (const c of due) {
+    const meta = STATUS_META[c.status] || STATUS_META.coding;
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div>
+        <div>${escapeHtml(caseLabel(c))} <span class="status-pill ${meta.tone}">${meta.label}</span></div>
+        <div class="muted">${escapeHtml(c.assignee || "Unassigned")}</div>
+      </div>
+      <a href="#case/${c.id}" class="btn ghost sm">Open</a>`;
+    ul.appendChild(li);
+  }
+}
+
 function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
-  document.getElementById("kpi-hours-today").textContent = sumHours(filterEntriesSince(startOfToday())).toFixed(2);
-  document.getElementById("kpi-hours-week").textContent = sumHours(filterEntriesSince(startOfWeek())).toFixed(2);
-  document.getElementById("kpi-cpts").textContent = state.cases.reduce((s, c) => s + c.cpts.length, 0);
+  document.getElementById("kpi-hours-today").textContent = hoursToHM(sumHours(filterEntriesSince(startOfToday())));
+  document.getElementById("kpi-hours-week").textContent = hoursToHM(sumHours(filterEntriesSince(startOfWeek())));
+  computeKpiTrends();
+  renderChart();
+  renderDueToday();
 
   const recentCases = document.getElementById("recent-cases");
   recentCases.innerHTML = "";
@@ -302,14 +622,15 @@ function renderOverview() {
     recentCases.innerHTML = '<li class="empty">No cases yet.</li>';
   } else {
     for (const c of list) {
+      const meta = STATUS_META[c.status] || STATUS_META.coding;
+      const assignee = c.assignee ? ` · ${escapeHtml(c.assignee)}` : "";
       const li = document.createElement("li");
       li.innerHTML = `
         <div>
-          <div>${escapeHtml(caseLabel(c))}</div>
-          <div class="muted">${escapeHtml(c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10))} · ${c.cpts.length} CPT</div>
+          <div>${escapeHtml(caseLabel(c))} <span class="status-pill ${meta.tone}">${meta.label}</span></div>
+          <div class="muted">${escapeHtml(c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10))}${assignee}</div>
         </div>
-        <a href="#cases" class="btn ghost sm">Open</a>`;
-      li.querySelector("a").addEventListener("click", () => { state.activeId = c.id; save(); });
+        <a href="#case/${c.id}" class="btn ghost sm">Open</a>`;
       recentCases.appendChild(li);
     }
   }
@@ -325,57 +646,119 @@ function renderOverview() {
       const li = document.createElement("li");
       li.innerHTML = `
         <div>
-          <div>${escapeHtml(e.task || "(no task)")}</div>
-          <div class="muted">${escapeHtml(e.date)}${c ? " · " + escapeHtml(caseLabel(c)) : ""}</div>
+          <div>${escapeHtml(c ? caseLabel(c) : "Unassigned")}</div>
+          <div class="muted">${escapeHtml(e.date)}</div>
         </div>
-        <div><strong>${Number(e.hours).toFixed(2)}h</strong></div>`;
+        <div><strong>${hoursToHMS(e.hours)}</strong></div>`;
       recentEntries.appendChild(li);
     }
   }
 }
 
-/* ---------- Cases page ---------- */
-function renderCasesPage() {
-  renderCaseList();
-  renderCaseDetail();
+/* ---------- Cases index (gallery) ---------- */
+function renderStatusFilterTabs() {
+  const tabs = document.getElementById("status-filter");
+  if (!tabs) return;
+  const counts = {
+    coding: state.cases.filter((c) => (c.status || "coding") === "coding").length,
+    review: state.cases.filter((c) => c.status === "review").length,
+    complete: state.cases.filter((c) => c.status === "complete").length,
+  };
+  const defs = [
+    { key: "coding", label: "Coding" },
+    { key: "review", label: "In Review" },
+    { key: "complete", label: "Complete" },
+  ];
+  tabs.innerHTML = "";
+  for (const d of defs) {
+    const btn = document.createElement("button");
+    btn.className = "status-tab" + (state.caseStatusFilter === d.key ? " active" : "");
+    btn.dataset.status = d.key;
+    btn.innerHTML = `<span>${d.label}</span><span class="status-tab-count">${counts[d.key]}</span>`;
+    btn.addEventListener("click", () => {
+      state.caseStatusFilter = d.key;
+      save();
+      renderCasesIndex();
+    });
+    tabs.appendChild(btn);
+  }
 }
 
-function renderCaseList() {
-  const ul = document.getElementById("case-list");
-  if (!ul) return;
-  ul.innerHTML = "";
+function renderCasesIndex() {
+  renderStatusFilterTabs();
+
+  const grid = document.getElementById("case-grid");
+  const countEl = document.getElementById("cases-count");
+  if (!grid) return;
+  grid.innerHTML = "";
+
   const q = (state.caseSearch || "").toLowerCase();
+  const filter = state.caseStatusFilter || "coding";
   const cases = state.cases.filter((c) => {
+    const status = c.status || "coding";
+    if (status !== filter) return false;
     if (!q) return true;
-    const hay = `${c.patient.name} ${c.patient.mrn} ${c.patient.provider} ${c.patient.facility}`.toLowerCase();
+    const hay = `${c.patient.name} ${c.patient.mrn} ${c.patient.provider} ${c.patient.facility} ${c.assignee || ""}`.toLowerCase();
     return hay.includes(q);
   });
+
+  if (countEl) {
+    const shown = cases.length;
+    const label = (STATUS_META[filter] || STATUS_META.coding).label.toLowerCase();
+    countEl.textContent = `${shown} ${shown === 1 ? "case" : "cases"} · ${label}`;
+  }
+
   if (!cases.length) {
-    ul.innerHTML = `<li class="empty">${state.cases.length ? "No cases match your search." : "No cases yet. Click \"New Case\"."}</li>`;
+    const label = (STATUS_META[filter] || STATUS_META.coding).label;
+    const msg = state.cases.length
+      ? (q ? "No cases match your search in this section." : `No cases in <strong>${label}</strong>.`)
+      : 'Your library is empty. Click <strong>New Case</strong> to begin.';
+    grid.innerHTML = `<div class="case-grid-empty">${msg}</div>`;
     return;
   }
+
   for (const c of cases) {
-    const li = document.createElement("li");
-    if (c.id === state.activeId) li.classList.add("active");
+    const status = c.status || "coding";
+    const meta = STATUS_META[status] || STATUS_META.coding;
     const name = caseLabel(c);
     const dos = c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10);
-    li.innerHTML = `<div class="case-name">${escapeHtml(name)}</div><div class="case-sub">${escapeHtml(dos)} · ${c.cpts.length} CPT · ${c.opDocs.length + c.dxDocs.length} docs</div>`;
-    li.addEventListener("click", () => { state.activeId = c.id; save(); render(); });
-    ul.appendChild(li);
+    const info = [c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
+      .filter(Boolean)
+      .join(" · ") || "No patient info yet";
+    const assignee = c.assignee
+      ? `<span class="case-assignee"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escapeHtml(c.assignee)}</span>`
+      : `<span class="case-assignee unassigned">Unassigned</span>`;
+
+    const card = document.createElement("a");
+    card.className = "case-card";
+    card.href = `#case/${c.id}`;
+    card.innerHTML = `
+      <div class="case-card-head">
+        <div class="case-card-name">${escapeHtml(name)}</div>
+        <span class="status-pill ${meta.tone}">${meta.label}</span>
+      </div>
+      <div class="case-card-meta">${escapeHtml(info)}</div>
+      <div class="case-card-footer">
+        ${assignee}
+        <span class="case-card-date">${escapeHtml(dos)}</span>
+      </div>
+      <div class="case-card-stats">
+        <span class="case-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/><path d="M9 11V7a3 3 0 0 1 6 0v4"/></svg>
+          <strong>${c.cpts.length}</strong> CPT
+        </span>
+        <span class="case-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <strong>${c.opDocs.length + c.dxDocs.length}</strong> docs
+        </span>
+      </div>`;
+    grid.appendChild(card);
   }
 }
 
 function renderCaseDetail() {
   const c = getActive();
-  const view = document.getElementById("case-view");
-  const empty = document.getElementById("case-empty");
-  if (!c) {
-    view.hidden = true;
-    empty.hidden = false;
-    return;
-  }
-  view.hidden = false;
-  empty.hidden = true;
+  if (!c) { navigate("cases"); return; }
 
   document.getElementById("case-title").textContent = caseLabel(c);
   const subParts = [];
@@ -384,7 +767,22 @@ function renderCaseDetail() {
   if (c.patient.provider) subParts.push(c.patient.provider);
   document.getElementById("case-subtitle").textContent = subParts.length ? subParts.join(" · ") : "Fill in patient info below.";
 
+  // Status badge in header
+  const badge = document.getElementById("case-status-badge");
+  if (badge) {
+    const meta = STATUS_META[c.status] || STATUS_META.coding;
+    badge.className = `status-pill ${meta.tone}`;
+    badge.textContent = meta.label;
+  }
+
   document.querySelectorAll("[data-field]").forEach((el) => { el.value = c.patient[el.dataset.field] || ""; });
+  const statusEl = document.getElementById("case-status");
+  if (statusEl) statusEl.value = c.status || "coding";
+  const assigneeEl = document.getElementById("case-assignee");
+  if (assigneeEl) assigneeEl.value = c.assignee || "";
+  const dueEl = document.getElementById("case-due-date");
+  if (dueEl) dueEl.value = c.dueDate || "";
+
   renderDocList("op-list", c.opDocs, "op");
   renderDocList("dx-list", c.dxDocs, "dx");
   renderCptTable(c);
@@ -403,9 +801,98 @@ function renderDocList(id, docs, kind) {
       ? `<img src="${d.dataUrl}" alt="" />`
       : `<div class="doc-thumb-pdf">PDF</div>`;
     const size = d.size ? ` · ${(d.size / 1024).toFixed(0)} KB` : "";
-    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
-    li.querySelector(".btn.icon").addEventListener("click", () => removeDoc(kind, d.id));
+    li.title = "Click to open";
+    li.innerHTML = `${thumb}<div class="doc-name">${escapeHtml(d.name)}<div class="doc-meta">${escapeHtml(d.type || "file")}${size}</div></div><span class="doc-open-hint">Open</span><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button>`;
+    li.addEventListener("click", (e) => {
+      if (e.target.closest(".btn")) return;
+      openDoc(d);
+    });
+    li.querySelector(".btn.icon").addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeDoc(kind, d.id);
+    });
     ul.appendChild(li);
+  }
+}
+
+let currentViewerBlobUrl = null;
+
+function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return null;
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx < 0) return null;
+  const meta = dataUrl.slice(5, commaIdx); // everything between "data:" and the comma
+  const data = dataUrl.slice(commaIdx + 1);
+  const parts = meta.split(";");
+  const mime = parts[0] || "application/octet-stream";
+  const isBase64 = parts.some((p) => p.toLowerCase() === "base64");
+  try {
+    const bytes = isBase64 ? atob(data) : decodeURIComponent(data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  } catch (e) {
+    console.warn("dataUrlToBlob failed", e);
+    return null;
+  }
+}
+
+function openDoc(d) {
+  const viewer = document.getElementById("doc-viewer");
+  const title = document.getElementById("doc-viewer-title");
+  const body = document.getElementById("doc-viewer-body");
+  const dl = document.getElementById("doc-viewer-download");
+  if (!viewer || !body) return;
+
+  // Release any URL from a previous open
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
+  }
+
+  title.textContent = d.name || "Document";
+  body.innerHTML = "";
+
+  const blob = dataUrlToBlob(d.dataUrl);
+  const blobUrl = blob ? URL.createObjectURL(blob) : d.dataUrl;
+  currentViewerBlobUrl = blob ? blobUrl : null;
+
+  dl.href = blobUrl;
+  dl.download = d.name || "document";
+
+  if (d.type && d.type.startsWith("image/")) {
+    const img = document.createElement("img");
+    img.src = blobUrl;
+    img.alt = d.name || "";
+    body.appendChild(img);
+  } else {
+    const obj = document.createElement("object");
+    obj.data = blobUrl;
+    obj.type = d.type || "application/pdf";
+    obj.setAttribute("width", "100%");
+    obj.setAttribute("height", "100%");
+    const fallback = document.createElement("div");
+    fallback.className = "doc-viewer-fallback";
+    fallback.innerHTML = `
+      <p>Your browser can't render this PDF inline.</p>
+      <a class="btn gold sm" href="${blobUrl}" target="_blank" rel="noopener">Open in new tab</a>`;
+    obj.appendChild(fallback);
+    body.appendChild(obj);
+  }
+
+  viewer.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeDoc() {
+  const viewer = document.getElementById("doc-viewer");
+  if (!viewer) return;
+  viewer.hidden = true;
+  document.getElementById("doc-viewer-body").innerHTML = "";
+  document.body.style.overflow = "";
+  if (currentViewerBlobUrl) {
+    URL.revokeObjectURL(currentViewerBlobUrl);
+    currentViewerBlobUrl = null;
   }
 }
 
@@ -434,16 +921,102 @@ function renderCptTable(c) {
   }
 }
 
+/* ---------- Calendar ---------- */
+function currentCalMonth() {
+  if (state.calendarMonth) return state.calendarMonth;
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shiftCalMonth(delta) {
+  const [y, m] = currentCalMonth().split("-").map(Number);
+  let ny = y, nm = m + delta;
+  while (nm < 1)  { nm += 12; ny -= 1; }
+  while (nm > 12) { nm -= 12; ny += 1; }
+  state.calendarMonth = `${ny}-${String(nm).padStart(2, "0")}`;
+  save();
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const wrap = document.getElementById("calendar");
+  const titleEl = document.getElementById("cal-title");
+  if (!wrap || !titleEl) return;
+
+  const ym = currentCalMonth();
+  const [y, m] = ym.split("-").map(Number);
+  const first = new Date(y, m - 1, 1);
+  const lastDay = new Date(y, m, 0).getDate();
+  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  titleEl.textContent = `${monthNames[m - 1]} ${y}`;
+
+  const dayHours = {};
+  const dayEntryCounts = {};
+  for (const e of state.timesheet) {
+    if (typeof e.date !== "string" || !e.date.startsWith(ym)) continue;
+    dayHours[e.date] = (dayHours[e.date] || 0) + (Number(e.hours) || 0);
+    dayEntryCounts[e.date] = (dayEntryCounts[e.date] || 0) + 1;
+  }
+
+  const dayDue = {};
+  for (const c of state.cases) {
+    if (!c.dueDate || !c.dueDate.startsWith(ym)) continue;
+    (dayDue[c.dueDate] ||= []).push(c);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  let html = `<div class="cal-weekdays">${weekdays.map((d) => `<div>${d}</div>`).join("")}</div><div class="cal-grid">`;
+  const firstDow = (first.getDay() + 6) % 7; // Mon = 0 … Sun = 6
+  for (let i = 0; i < firstDow; i++) html += `<div class="cal-day cal-blank"></div>`;
+
+  for (let day = 1; day <= lastDay; day++) {
+    const iso = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const h = dayHours[iso] || 0;
+    const entries = dayEntryCounts[iso] || 0;
+    const due = dayDue[iso] || [];
+    const isToday = iso === today;
+
+    const classes = ["cal-day"];
+    if (isToday) classes.push("cal-today");
+    if (h > 0) classes.push("cal-has-hours");
+    if (due.length) classes.push("cal-has-due");
+
+    const tooltipParts = [];
+    if (h > 0) tooltipParts.push(`${hoursToHMS(h)} logged (${entries} ${entries === 1 ? "entry" : "entries"})`);
+    if (due.length) tooltipParts.push(`${due.length} due: ${due.map((c) => caseLabel(c)).join(", ")}`);
+
+    html += `
+      <div class="${classes.join(" ")}" title="${escapeAttr(tooltipParts.join(" · "))}">
+        <div class="cal-day-num">${day}</div>
+        ${h > 0 ? `<div class="cal-hours">${hoursToHM(h)}</div>` : ""}
+        ${due.length ? `<div class="cal-due-list">${due.slice(0, 2).map((c) => `<a class="cal-due-chip" href="#case/${c.id}">${escapeHtml(caseLabel(c))}</a>`).join("")}${due.length > 2 ? `<span class="cal-due-more">+${due.length - 2}</span>` : ""}</div>` : ""}
+      </div>`;
+  }
+
+  html += "</div>";
+  wrap.innerHTML = html;
+}
+
 /* ---------- Timesheet page ---------- */
 function renderTimesheet() {
   populateCaseSelect("timer-case");
   const t = state.activeTimer;
-  const taskEl = document.getElementById("timer-task");
   const caseEl = document.getElementById("timer-case");
-  if (taskEl) { taskEl.value = t ? t.task : taskEl.value; taskEl.disabled = !!t; }
+  const empEl = document.getElementById("timer-employee");
   if (caseEl) { caseEl.value = t ? (t.caseId || "") : caseEl.value; caseEl.disabled = !!t; }
+  if (empEl) {
+    if (t) {
+      empEl.value = t.employee || "";
+    } else if (!empEl.value.trim()) {
+      empEl.value = DEFAULT_USER;
+    }
+    empEl.disabled = !!t;
+  }
   updateTimerDisplay();
   if (t && !timerInterval) startTimerLoop();
+  renderCalendar();
 
   renderKpis();
   renderEntriesTable();
@@ -454,7 +1027,7 @@ function renderKpis() {
   const week = sumHours(filterEntriesSince(startOfWeek()));
   const month = sumHours(filterEntriesSince(startOfMonth()));
   const total = sumHours(state.timesheet);
-  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val.toFixed(2); };
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = hoursToHM(val); };
   set("ts-today", today);
   set("ts-week", week);
   set("ts-month", month);
@@ -489,13 +1062,22 @@ function renderEntriesTable() {
       .join("");
     tr.innerHTML = `
       <td><input data-f="date" type="date" value="${escapeAttr(r.date)}" /></td>
-      <td><input data-f="hours" type="number" min="0" step="0.25" value="${r.hours}" /></td>
-      <td><input data-f="task" value="${escapeAttr(r.task)}" placeholder="Task / notes" /></td>
+      <td><input data-f="hours" class="hms-input" value="${escapeAttr(hoursToHMS(r.hours))}" placeholder="HH:MM:SS" inputmode="numeric" /></td>
       <td><select data-f="caseId">${caseOptions}</select></td>
+      <td><input data-f="employee" value="${escapeAttr(r.employee || "")}" placeholder="Employee" /></td>
       <td><button class="btn icon danger-ghost" title="Remove">${trashIcon}</button></td>`;
     tr.querySelectorAll("input, select").forEach((inp) => {
-      inp.addEventListener("input", (e) => updateEntry(r.id, e.target.dataset.f, e.target.value));
-      inp.addEventListener("change", (e) => updateEntry(r.id, e.target.dataset.f, e.target.value));
+      inp.addEventListener("change", (e) => {
+        updateEntry(r.id, e.target.dataset.f, e.target.value);
+        // Reformat the hours cell back to canonical HH:MM:SS after edit
+        if (e.target.dataset.f === "hours") {
+          const updated = state.timesheet.find((x) => x.id === r.id);
+          if (updated) e.target.value = hoursToHMS(updated.hours);
+        }
+      });
+      if (inp.dataset.f !== "hours") {
+        inp.addEventListener("input", (e) => updateEntry(r.id, e.target.dataset.f, e.target.value));
+      }
     });
     tr.querySelector(".btn.icon").addEventListener("click", () => removeEntry(r.id));
     tbody.appendChild(tr);
@@ -571,7 +1153,7 @@ async function buildPdf() {
     doc.setFont("helvetica", "normal");
     const totalH = sumHours(caseEntries);
     caseEntries.forEach((e) => {
-      const line = `${e.date}  ${Number(e.hours).toFixed(2)}h  ${e.task || ""}`;
+      const line = `${e.date}  ${Number(e.hours).toFixed(2)}h`;
       const wrap = doc.splitTextToSize(line, pageW - margin * 2);
       if (y + wrap.length * 14 > pageH - margin) { doc.addPage(); y = margin; }
       doc.text(wrap, margin, y); y += wrap.length * 14;
@@ -641,16 +1223,22 @@ function bindEvents() {
   });
 
   document.getElementById("new-case-btn").addEventListener("click", createCase);
-  document.getElementById("export-all-btn").addEventListener("click", exportAll);
-  document.getElementById("import-all").addEventListener("change", (e) => {
-    if (e.target.files[0]) importAll(e.target.files[0]);
-    e.target.value = "";
-  });
 
   const search = document.getElementById("case-search");
   if (search) {
     search.value = state.caseSearch || "";
-    search.addEventListener("input", (e) => { state.caseSearch = e.target.value; renderCaseList(); });
+    search.addEventListener("input", (e) => { state.caseSearch = e.target.value; renderCasesIndex(); });
+  }
+
+  const globalSearch = document.getElementById("global-search");
+  if (globalSearch) {
+    globalSearch.value = state.caseSearch || "";
+    globalSearch.addEventListener("input", (e) => {
+      state.caseSearch = e.target.value;
+      if (search) search.value = e.target.value;
+      navigate("cases");
+      renderCasesIndex();
+    });
   }
 
   document.querySelectorAll("[data-field]").forEach((el) => {
@@ -661,7 +1249,6 @@ function bindEvents() {
       save();
       const f = el.dataset.field;
       if (f === "name" || f === "dos" || f === "mrn" || f === "provider") {
-        renderCaseList();
         const title = document.getElementById("case-title");
         const sub = document.getElementById("case-subtitle");
         if (title) title.textContent = caseLabel(c);
@@ -676,13 +1263,46 @@ function bindEvents() {
     });
   });
 
+  const statusSel = document.getElementById("case-status");
+  if (statusSel) {
+    statusSel.addEventListener("change", () => {
+      const c = getActive();
+      if (!c) return;
+      c.status = statusSel.value;
+      save();
+      const badge = document.getElementById("case-status-badge");
+      if (badge) {
+        const meta = STATUS_META[c.status] || STATUS_META.coding;
+        badge.className = `status-pill ${meta.tone}`;
+        badge.textContent = meta.label;
+      }
+    });
+  }
+  const assigneeInput = document.getElementById("case-assignee");
+  if (assigneeInput) {
+    assigneeInput.addEventListener("input", () => {
+      const c = getActive();
+      if (!c) return;
+      c.assignee = assigneeInput.value;
+      save();
+    });
+  }
+  const dueInput = document.getElementById("case-due-date");
+  if (dueInput) {
+    dueInput.addEventListener("input", () => {
+      const c = getActive();
+      if (!c) return;
+      c.dueDate = dueInput.value;
+      save();
+    });
+  }
+
   document.getElementById("upload-op").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("op", e.target.files); e.target.value = "";
   });
   document.getElementById("upload-dx").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("dx", e.target.files); e.target.value = "";
   });
-  document.getElementById("build-pdf-btn").addEventListener("click", buildPdf);
 
   document.getElementById("add-cpt-btn").addEventListener("click", addCpt);
   document.getElementById("delete-case-btn").addEventListener("click", () => {
@@ -690,11 +1310,38 @@ function bindEvents() {
     if (c) deleteCase(c.id);
   });
 
+  const timerCase = document.getElementById("timer-case");
+  if (timerCase) {
+    timerCase.addEventListener("change", () => {
+      const emp = document.getElementById("timer-employee");
+      const c = state.cases.find((x) => x.id === timerCase.value);
+      if (emp && !emp.value.trim() && c && c.assignee) emp.value = c.assignee;
+    });
+  }
+
   document.getElementById("clock-btn").addEventListener("click", () => {
     if (state.activeTimer) clockOut();
     else clockIn();
   });
   document.getElementById("add-entry-btn").addEventListener("click", addManualEntry);
+
+  const calPrev = document.getElementById("cal-prev");
+  const calNext = document.getElementById("cal-next");
+  const calToday = document.getElementById("cal-today");
+  if (calPrev)  calPrev.addEventListener("click", () => shiftCalMonth(-1));
+  if (calNext)  calNext.addEventListener("click", () => shiftCalMonth(+1));
+  if (calToday) calToday.addEventListener("click", () => {
+    state.calendarMonth = null;
+    save();
+    renderCalendar();
+  });
+
+  document.querySelectorAll("#doc-viewer [data-close]").forEach((el) => {
+    el.addEventListener("click", closeDoc);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("doc-viewer").hidden) closeDoc();
+  });
 }
 
 /* =================================================================
@@ -702,5 +1349,6 @@ function bindEvents() {
 ================================================================= */
 load();
 bindEvents();
+renderTopbar();
 render();
 if (state.activeTimer) startTimerLoop();
