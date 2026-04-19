@@ -587,10 +587,12 @@ function renderProductivity() {
   const completed = state.cases.filter((c) => c.status === "complete" && c.completedAt);
 
   const codedToday = completed.filter((c) => new Date(c.completedAt) >= today0).length;
+  const codedMonth = completed.filter((c) => new Date(c.completedAt) >= monthAgo).length;
 
-  // Time entries tie directly into productivity: a case is "worked" once
-  // any time entry for it lands in the window. Aggregate hours per case
-  // from the timesheet so we can rank them and compute real averages.
+  // Time entries tie into productivity for the per-case breakdown, but the
+  // throughput ratios only make sense when the numerator is *finished*
+  // charts — otherwise a case with 22 seconds of logged time inflates
+  // Cases/Hour into the hundreds.
   const monthEntries = state.timesheet.filter((e) => e.caseId && new Date(e.date) >= monthAgo);
   const weekEntries = state.timesheet.filter((e) => e.caseId && new Date(e.date) >= weekStart);
 
@@ -600,18 +602,20 @@ function renderProductivity() {
     hoursByCaseMonth[e.caseId] = (hoursByCaseMonth[e.caseId] || 0) + (Number(e.hours) || 0);
     entriesByCaseMonth[e.caseId] = (entriesByCaseMonth[e.caseId] || 0) + 1;
   }
-  const workedCasesMonth = Object.keys(hoursByCaseMonth).length;
   const hoursMonth = Object.values(hoursByCaseMonth).reduce((s, h) => s + h, 0);
-
   const workedCasesWeek = new Set(weekEntries.map((e) => e.caseId)).size;
 
-  const hoursPerCase = workedCasesMonth > 0 ? hoursMonth / workedCasesMonth : 0;
-  const casesPerHour = hoursMonth > 0 ? workedCasesMonth / hoursMonth : 0;
+  // Only compute throughput ratios once we have at least one completed
+  // chart and a non-trivial amount of time logged (15 min). Below that
+  // the numbers are noise — show a dash instead.
+  const haveSignal = codedMonth > 0 && hoursMonth >= 0.25;
+  const hoursPerCase = haveSignal ? hoursMonth / codedMonth : null;
+  const casesPerHour = haveSignal ? codedMonth / hoursMonth : null;
 
   document.getElementById("p-coded-today").textContent = codedToday;
   document.getElementById("p-worked-week").textContent = workedCasesWeek;
-  document.getElementById("p-hours-per-case").textContent = hoursPerCase.toFixed(2);
-  document.getElementById("p-cases-per-hour").textContent = casesPerHour.toFixed(2);
+  document.getElementById("p-hours-per-case").textContent = hoursPerCase == null ? "—" : hoursPerCase.toFixed(2);
+  document.getElementById("p-cases-per-hour").textContent = casesPerHour == null ? "—" : casesPerHour.toFixed(2);
 
   renderHoursByCase(hoursByCaseMonth, entriesByCaseMonth);
 
