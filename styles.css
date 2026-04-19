@@ -1163,6 +1163,7 @@ textarea { font-family: inherit; resize: vertical; }
   letter-spacing: 0.02em;
   text-align: center;
   font-weight: 600;
+  min-width: 96px;
 }
 
 /* ===== Clock controls reflow (Case + Employee + button) ===== */
