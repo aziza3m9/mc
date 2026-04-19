@@ -378,6 +378,18 @@ function startOfMonth() { const d = startOfToday(); d.setDate(1); return d; }
 function filterEntriesSince(cutoff) {
   return state.timesheet.filter((e) => new Date(e.date) >= cutoff);
 }
+function filterEntriesBetween(fromInclusive, toExclusive) {
+  return state.timesheet.filter((e) => {
+    const d = new Date(e.date);
+    return d >= fromInclusive && d < toExclusive;
+  });
+}
+function ymd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 /* =================================================================
    ROUTING
@@ -433,6 +445,137 @@ function renderNavBadges() {
   if (dot) dot.hidden = !state.activeTimer;
 }
 
+function renderTopbar() {
+  const dateEl = document.getElementById("topbar-date");
+  if (!dateEl) return;
+  const now = new Date();
+  dateEl.textContent = now.toLocaleDateString(undefined, {
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+  });
+}
+
+/* ---------- Trend chips ---------- */
+const ARROW_UP   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>`;
+const ARROW_DOWN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+const DASH_ICON  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+
+function setTrendChip(el, current, previous, { unit = "", mode = "percent" } = {}) {
+  if (!el) return;
+  const hasPrev = Number.isFinite(previous);
+  let cls = "flat", icon = DASH_ICON, label;
+  if (!hasPrev || (previous === 0 && current === 0)) {
+    label = "No change";
+  } else if (previous === 0 && current > 0) {
+    cls = "up"; icon = ARROW_UP; label = `+${current.toFixed(unit === "h" ? 2 : 0)}${unit} new`;
+  } else {
+    const diff = current - previous;
+    if (Math.abs(diff) < 1e-6) { label = "Even"; }
+    else if (mode === "percent") {
+      const pct = (diff / Math.abs(previous)) * 100;
+      cls = diff > 0 ? "up" : "down";
+      icon = diff > 0 ? ARROW_UP : ARROW_DOWN;
+      label = `${diff > 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%`;
+    } else {
+      cls = diff > 0 ? "up" : "down";
+      icon = diff > 0 ? ARROW_UP : ARROW_DOWN;
+      label = `${diff > 0 ? "+" : "−"}${Math.abs(diff).toFixed(unit === "h" ? 2 : 0)}${unit}`;
+    }
+  }
+  el.className = `kpi-trend ${cls}`;
+  el.innerHTML = `${icon}<span>${label}</span>`;
+}
+
+function computeKpiTrends() {
+  const now = new Date();
+  const today0 = startOfToday();
+  const weekStart = startOfWeek();
+  const prevWeekStart = new Date(weekStart); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+  const yesterday = new Date(today0); yesterday.setDate(yesterday.getDate() - 1);
+
+  const weekAgo = new Date(today0); weekAgo.setDate(weekAgo.getDate() - 7);
+  const casesAddedThisWeek = state.cases.filter((c) => new Date(c.createdAt) >= weekStart).length;
+  const casesAddedPrevWeek = state.cases.filter((c) => {
+    const d = new Date(c.createdAt);
+    return d >= prevWeekStart && d < weekStart;
+  }).length;
+
+  const hoursToday = sumHours(filterEntriesSince(today0));
+  const hoursYesterday = sumHours(filterEntriesBetween(yesterday, today0));
+  const hoursThisWeek = sumHours(filterEntriesSince(weekStart));
+  const hoursPrevWeek = sumHours(filterEntriesBetween(prevWeekStart, weekStart));
+
+  setTrendChip(document.getElementById("trend-cases"), casesAddedThisWeek, casesAddedPrevWeek, { unit: "", mode: "delta" });
+  setTrendChip(document.getElementById("trend-hours-today"), hoursToday, hoursYesterday, { unit: "h", mode: "percent" });
+  setTrendChip(document.getElementById("trend-hours-week"), hoursThisWeek, hoursPrevWeek, { unit: "h", mode: "percent" });
+}
+
+/* ---------- Overview chart (last 7 days, inline SVG) ---------- */
+function renderChart() {
+  const wrap = document.getElementById("chart-wrap");
+  const totalEl = document.getElementById("chart-total");
+  if (!wrap) return;
+
+  const today0 = startOfToday();
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today0); d.setDate(d.getDate() - i);
+    const key = ymd(d);
+    const hours = sumHours(state.timesheet.filter((e) => e.date === key));
+    days.push({ date: d, key, hours, isToday: i === 0 });
+  }
+  const total = days.reduce((s, d) => s + d.hours, 0);
+  if (totalEl) totalEl.textContent = `${total.toFixed(2)}h`;
+
+  if (total === 0) {
+    wrap.innerHTML = '<div class="chart-empty">No hours logged in the last 7 days.</div>';
+    return;
+  }
+
+  const W = 720, H = 180;
+  const padL = 24, padR = 16, padT = 16, padB = 30;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.hours), 1);
+  const step = plotW / (days.length - 1);
+  const points = days.map((d, i) => {
+    const x = padL + i * step;
+    const y = padT + plotH - (d.hours / max) * plotH;
+    return { ...d, x, y };
+  });
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L ${points[points.length-1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${points[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+
+  const gridLines = [0.25, 0.5, 0.75].map((t) => {
+    const y = padT + plotH * t;
+    return `<line class="chart-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  const dots = points.map((p) => `<circle class="chart-dot${p.isToday ? ' today' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isToday ? 5 : 3.5}"/>`).join("");
+  const xLabels = points.map((p) => {
+    const d = p.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3).toUpperCase();
+    return `<text class="chart-axis-label" x="${p.x.toFixed(1)}" y="${H - 8}">${d}</text>`;
+  }).join("");
+  const valueLabels = points.map((p) => p.hours > 0
+    ? `<text class="chart-value-label" x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}">${p.hours.toFixed(1)}</text>`
+    : ""
+  ).join("");
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"  stop-color="#9333ea" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#9333ea" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${gridLines}
+      <path class="chart-area" d="${areaPath}"/>
+      <path class="chart-line" d="${linePath}"/>
+      ${dots}
+      ${valueLabels}
+      ${xLabels}
+    </svg>`;
+}
+
 /* ---------- Overview ---------- */
 function renderDueToday() {
   const ul = document.getElementById("due-today");
@@ -468,6 +611,8 @@ function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
   document.getElementById("kpi-hours-today").textContent = hoursToHM(sumHours(filterEntriesSince(startOfToday())));
   document.getElementById("kpi-hours-week").textContent = hoursToHM(sumHours(filterEntriesSince(startOfWeek())));
+  computeKpiTrends();
+  renderChart();
   renderDueToday();
 
   const recentCases = document.getElementById("recent-cases");
@@ -1085,6 +1230,17 @@ function bindEvents() {
     search.addEventListener("input", (e) => { state.caseSearch = e.target.value; renderCasesIndex(); });
   }
 
+  const globalSearch = document.getElementById("global-search");
+  if (globalSearch) {
+    globalSearch.value = state.caseSearch || "";
+    globalSearch.addEventListener("input", (e) => {
+      state.caseSearch = e.target.value;
+      if (search) search.value = e.target.value;
+      navigate("cases");
+      renderCasesIndex();
+    });
+  }
+
   document.querySelectorAll("[data-field]").forEach((el) => {
     el.addEventListener("input", () => {
       const c = getActive();
@@ -1193,5 +1349,6 @@ function bindEvents() {
 ================================================================= */
 load();
 bindEvents();
+renderTopbar();
 render();
 if (state.activeTimer) startTimerLoop();
