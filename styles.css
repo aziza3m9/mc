@@ -1443,27 +1443,6 @@ textarea { font-family: inherit; resize: vertical; }
   font-weight: 600;
   color: var(--text);
 }
-.topbar-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--gold-hover);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  text-decoration: none;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.topbar-link:hover {
-  background: var(--gold-soft);
-  color: var(--gold-hover);
-  border-color: var(--gold-bright);
-}
-.topbar-link svg { color: var(--gold); }
 .topbar-avatar {
   width: 26px; height: 26px;
   border-radius: 50%;
