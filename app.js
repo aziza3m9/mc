@@ -12,6 +12,7 @@ const state = {
 };
 
 const STATUS_META = {
+  assigned: { label: "Assigned",  tone: "violet"  },
   coding:   { label: "Coding",    tone: "amber"   },
   review:   { label: "In Review", tone: "emerald" },
   complete: { label: "Complete",  tone: "mute"    },
@@ -60,7 +61,7 @@ function load() {
     if (typeof e.employee !== "string") e.employee = "";
   }
   // Normalize filter: migrate old "all" value and any unknown value to "coding".
-  const validFilters = ["coding", "review", "complete"];
+  const validFilters = ["assigned", "coding", "review", "complete"];
   if (!validFilters.includes(state.caseStatusFilter)) state.caseStatusFilter = "coding";
 }
 
@@ -681,13 +682,15 @@ function renderStatusFilterTabs() {
   const tabs = document.getElementById("status-filter");
   if (!tabs) return;
   const counts = {
-    coding: state.cases.filter((c) => (c.status || "coding") === "coding").length,
-    review: state.cases.filter((c) => c.status === "review").length,
+    assigned: state.cases.filter((c) => c.status === "assigned").length,
+    coding:   state.cases.filter((c) => (c.status || "coding") === "coding").length,
+    review:   state.cases.filter((c) => c.status === "review").length,
     complete: state.cases.filter((c) => c.status === "complete").length,
   };
   const defs = [
-    { key: "coding", label: "Coding" },
-    { key: "review", label: "In Review" },
+    { key: "assigned", label: "Assigned" },
+    { key: "coding",   label: "Coding" },
+    { key: "review",   label: "In Review" },
     { key: "complete", label: "Complete" },
   ];
   tabs.innerHTML = "";
