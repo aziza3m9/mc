@@ -1443,27 +1443,6 @@ textarea { font-family: inherit; resize: vertical; }
   font-weight: 600;
   color: var(--text);
 }
-.topbar-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--gold-hover);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  text-decoration: none;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.topbar-link:hover {
-  background: var(--gold-soft);
-  color: var(--gold-hover);
-  border-color: var(--gold-bright);
-}
-.topbar-link svg { color: var(--gold); }
 .topbar-avatar {
   width: 26px; height: 26px;
   border-radius: 50%;
@@ -1606,4 +1585,47 @@ textarea { font-family: inherit; resize: vertical; }
   color: var(--text-subtle);
   font-style: italic;
   font-size: 13px;
+}
+
+/* ===== Productivity bar chart + leaderboard ===== */
+.bars-wrap { position: relative; height: 220px; }
+.bars-wrap svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.bar-rect { fill: url(#barGradient); }
+.bar-rect.today { fill: url(#barGradientToday); }
+.bar-label-x {
+  font-size: 10px;
+  fill: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-anchor: middle;
+}
+.bar-label-v {
+  font-size: 11px;
+  fill: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+}
+.bar-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.7;
+}
+.leaderboard { list-style: none; margin: 0; padding: 0; }
+.leaderboard li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.leaderboard li:last-child { border-bottom: none; }
+.leaderboard .lb-name { font-weight: 600; color: var(--text); }
+.leaderboard .lb-stat {
+  font-variant-numeric: tabular-nums;
+  color: var(--gold-hover);
+  font-weight: 700;
 }
