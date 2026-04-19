@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=26" />
+<link rel="stylesheet" href="styles.css?v=27" />
 </head>
 <body>
 <div class="app">
@@ -414,19 +414,19 @@
           <span class="kpi-trend-note">Charts marked complete today</span>
         </div>
         <div class="kpi">
-          <div class="kpi-label">Coded This Week</div>
-          <div class="kpi-value" id="p-coded-week">0</div>
-          <span class="kpi-trend-note">Mon → today</span>
+          <div class="kpi-label">Cases Worked This Week</div>
+          <div class="kpi-value" id="p-worked-week">0</div>
+          <span class="kpi-trend-note">Unique cases with time logged</span>
         </div>
         <div class="kpi">
           <div class="kpi-label">Avg Hours / Case</div>
           <div class="kpi-value" id="p-hours-per-case">0.00</div>
-          <span class="kpi-trend-note">Last 30 days</span>
+          <span class="kpi-trend-note">Across worked cases · 30d</span>
         </div>
         <div class="kpi">
           <div class="kpi-label">Cases / Hour</div>
           <div class="kpi-value" id="p-cases-per-hour">0.00</div>
-          <span class="kpi-trend-note">Last 30 days</span>
+          <span class="kpi-trend-note">Across worked cases · 30d</span>
         </div>
       </div>
 
@@ -456,6 +456,33 @@
           </div>
         </div>
         <div class="chart-wrap" id="p-line"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Hours by Case · Last 30 Days
+          </h2>
+          <div class="chart-meta">
+            <span>Cases worked</span>
+            <strong id="p-cases-worked-30">0</strong>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="p-hours-by-case">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Account</th>
+                <th>Status</th>
+                <th style="width: 90px; text-align: right;">Entries</th>
+                <th style="width: 130px; text-align: right;">Hours</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="card">
@@ -493,6 +520,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>
