@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=28" />
+<link rel="stylesheet" href="styles.css?v=29" />
 </head>
 <body>
 <div class="app">
@@ -40,6 +40,10 @@
       <a class="nav-item" data-route="productivity" href="#productivity">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="12" width="3" height="6"/><rect x="11" y="8" width="3" height="10"/><rect x="16" y="4" width="3" height="14"/></svg>
         <span>Productivity</span>
+      </a>
+      <a class="nav-item" data-route="feedback" href="#feedback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Feedback</span>
       </a>
     </nav>
 
@@ -496,7 +500,111 @@
       </section>
     </section>
 
+    <!-- =========================================================== -->
+    <!-- FEEDBACK PAGE                                                -->
+    <!-- =========================================================== -->
+    <section id="page-feedback" class="page" hidden>
+      <header class="page-header">
+        <div>
+          <h1>Feedback</h1>
+          <p class="page-sub">Quality notes — log feedback received from clients, reviewers, or yourself</p>
+        </div>
+        <div class="page-actions">
+          <button id="new-feedback-btn" class="btn gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Feedback
+          </button>
+        </div>
+      </header>
+
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Total · 30d</div>
+          <div class="kpi-value" id="fb-total">0</div>
+          <span class="kpi-trend-note">All ratings</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Good · 30d</div>
+          <div class="kpi-value" id="fb-good">0</div>
+          <span class="kpi-trend-note">Positive feedback</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Neutral · 30d</div>
+          <div class="kpi-value" id="fb-neutral">0</div>
+          <span class="kpi-trend-note">Routine</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Needs Work · 30d</div>
+          <div class="kpi-value" id="fb-needs">0</div>
+          <span class="kpi-trend-note">Action required</span>
+        </div>
+      </div>
+
+      <section class="card chart-card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="12" width="3" height="6"/><rect x="11" y="8" width="3" height="10"/><rect x="16" y="4" width="3" height="14"/></svg>
+            Feedback · Last 8 Weeks
+          </h2>
+          <div class="chart-meta">
+            <span>Total</span>
+            <strong id="fb-chart-total">0</strong>
+          </div>
+        </div>
+        <div class="bars-wrap" id="fb-chart"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            Feedback Log
+          </h2>
+        </div>
+        <ul id="fb-list" class="feedback-list"></ul>
+      </section>
+    </section>
+
   </main>
+</div>
+
+<!-- Add-feedback modal -->
+<div id="fb-modal" class="doc-viewer" hidden>
+  <div class="doc-viewer-backdrop" data-fb-close></div>
+  <div class="doc-viewer-panel" role="dialog" aria-modal="true" aria-labelledby="fb-modal-title" style="height:auto;max-height:90vh;width:min(560px,94vw);">
+    <header class="doc-viewer-head">
+      <div class="doc-viewer-title" id="fb-modal-title">New Feedback</div>
+      <div class="doc-viewer-actions">
+        <button class="btn icon ghost" data-fb-close aria-label="Close">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="doc-viewer-body" style="background:var(--surface);padding:22px;justify-content:flex-start;align-items:stretch;flex-direction:column;gap:14px;overflow:auto;">
+      <label>Rating
+        <select id="fb-rating">
+          <option value="good">Good</option>
+          <option value="neutral">Neutral</option>
+          <option value="needs">Needs Work</option>
+        </select>
+      </label>
+      <div class="grid two">
+        <label>Account (optional)
+          <input id="fb-account" type="text" list="account-suggestions" placeholder="e.g. Mercy Hospital" autocomplete="off" />
+        </label>
+        <label>Case (optional)
+          <select id="fb-case"><option value="">— None —</option></select>
+        </label>
+      </div>
+      <label>Note
+        <textarea id="fb-note" rows="4" placeholder="What was the feedback?"></textarea>
+      </label>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
+        <button class="btn ghost" data-fb-close>Cancel</button>
+        <button id="fb-save" class="btn primary">Save Feedback</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- In-site document viewer -->
@@ -520,6 +628,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=28"></script>
+<script src="app.js?v=29"></script>
 </body>
 </html>
