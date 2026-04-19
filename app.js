@@ -72,6 +72,14 @@ function load() {
     if (typeof c.account !== "string") c.account = "";
     if (!c.account && c.accountId && legacyById[c.accountId]) c.account = legacyById[c.accountId];
     if ("accountId" in c) delete c.accountId;
+    // Rename dxDocs -> hpDocs (Diagnostics -> H&P Notes). Preserve any
+    // prior diagnostics uploads by merging them in.
+    if (!Array.isArray(c.hpDocs)) c.hpDocs = [];
+    if (Array.isArray(c.dxDocs)) {
+      for (const d of c.dxDocs) c.hpDocs.push(d);
+      delete c.dxDocs;
+    }
+    if (!Array.isArray(c.opDocs)) c.opDocs = [];
   }
   if ("accounts" in state) delete state.accounts;
   if (!Array.isArray(state.feedback)) state.feedback = [];
@@ -100,7 +108,7 @@ function createCase() {
     id: uid(),
     createdAt: new Date().toISOString(),
     patient: { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" },
-    opDocs: [], dxDocs: [], cpts: [],
+    opDocs: [], hpDocs: [], cpts: [],
     status: "coding",
     assignee: DEFAULT_USER,
     dueDate: "",
@@ -197,7 +205,7 @@ async function imagesToPdfDataUrl(files) {
 async function addDocs(kind, fileList) {
   const c = getActive();
   if (!c) return;
-  const target = kind === "op" ? c.opDocs : c.dxDocs;
+  const target = kind === "op" ? c.opDocs : c.hpDocs;
   const files = Array.from(fileList);
 
   if (kind === "op") {
@@ -235,7 +243,7 @@ function removeDoc(kind, docId) {
   const c = getActive();
   if (!c) return;
   if (kind === "op") c.opDocs = c.opDocs.filter((d) => d.id !== docId);
-  else c.dxDocs = c.dxDocs.filter((d) => d.id !== docId);
+  else c.hpDocs = c.hpDocs.filter((d) => d.id !== docId);
   save();
   render();
 }
@@ -1190,7 +1198,7 @@ function renderCasesIndex() {
         </span>
         <span class="case-stat">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <strong>${c.opDocs.length + c.dxDocs.length}</strong> docs
+          <strong>${c.opDocs.length + c.hpDocs.length}</strong> docs
         </span>
       </div>`;
     grid.appendChild(card);
@@ -1228,7 +1236,7 @@ function renderCaseDetail() {
   refreshAccountSuggestions();
 
   renderDocList("op-list", c.opDocs, "op");
-  renderDocList("dx-list", c.dxDocs, "dx");
+  renderDocList("hp-list", c.hpDocs, "hp");
   renderCptTable(c);
 }
 
@@ -1609,7 +1617,7 @@ async function buildPdf() {
 
   const allDocs = [
     ...c.opDocs.map((d) => ({ ...d, section: "Operative Report" })),
-    ...c.dxDocs.map((d) => ({ ...d, section: "Diagnostics" })),
+    ...c.hpDocs.map((d) => ({ ...d, section: "H&P Notes" })),
   ];
   for (const d of allDocs) {
     if (!d.type.startsWith("image/")) continue;
@@ -1768,8 +1776,8 @@ function bindEvents() {
   document.getElementById("upload-op").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("op", e.target.files); e.target.value = "";
   });
-  document.getElementById("upload-dx").addEventListener("change", (e) => {
-    if (e.target.files.length) addDocs("dx", e.target.files); e.target.value = "";
+  document.getElementById("upload-hp").addEventListener("change", (e) => {
+    if (e.target.files.length) addDocs("hp", e.target.files); e.target.value = "";
   });
 
   document.getElementById("add-cpt-btn").addEventListener("click", addCpt);
