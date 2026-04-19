@@ -9,6 +9,7 @@ const state = {
   caseSearch: "",
   caseStatusFilter: "coding", // coding | review | complete
   calendarMonth: null,        // "YYYY-MM" (null = current month)
+  feedback: [],               // [{id, createdAt, rating, account, caseId, note}]
 };
 
 const STATUS_META = {
@@ -16,6 +17,12 @@ const STATUS_META = {
   coding:   { label: "Coding",    tone: "amber"   },
   review:   { label: "In Review", tone: "emerald" },
   complete: { label: "Complete",  tone: "mute"    },
+};
+
+const FEEDBACK_RATINGS = {
+  good:    { label: "Good",       tone: "emerald" },
+  neutral: { label: "Neutral",    tone: "amber"   },
+  needs:   { label: "Needs Work", tone: "violet"  },
 };
 
 let timerInterval = null;
@@ -67,6 +74,7 @@ function load() {
     if ("accountId" in c) delete c.accountId;
   }
   if ("accounts" in state) delete state.accounts;
+  if (!Array.isArray(state.feedback)) state.feedback = [];
   for (const e of state.timesheet) {
     if (typeof e.employee !== "string") e.employee = "";
   }
@@ -454,7 +462,7 @@ function parseRoute() {
   const raw = (location.hash || "#overview").replace(/^#/, "");
   const [head, id] = raw.split("/");
   if (head === "case" && id) return { name: "case", id };
-  if (["overview", "cases", "accounts", "timesheet", "productivity"].includes(head)) return { name: head, id: null };
+  if (["overview", "cases", "timesheet", "productivity", "feedback"].includes(head)) return { name: head, id: null };
   return { name: "overview", id: null };
 }
 function navigate(route) { location.hash = route; }
@@ -480,6 +488,7 @@ function onRouteChange() {
   }
   if (r.name === "timesheet") renderTimesheet();
   if (r.name === "productivity") renderProductivity();
+  if (r.name === "feedback") renderFeedback();
 }
 
 /* =================================================================
@@ -576,6 +585,173 @@ function computeKpiTrends() {
   setTrendChip(document.getElementById("trend-coded-today"), codedToday, codedYesterday, { unit: "", mode: "delta" });
   setTrendChip(document.getElementById("trend-hours-today"), hoursToday, hoursYesterday, { unit: "h", mode: "percent" });
   setTrendChip(document.getElementById("trend-hours-week"), hoursThisWeek, hoursPrevWeek, { unit: "h", mode: "percent" });
+}
+
+/* ---------- Feedback page ---------- */
+function renderFeedback() {
+  const today0 = startOfToday();
+  const monthAgo = new Date(today0); monthAgo.setDate(monthAgo.getDate() - 30);
+  const recent = state.feedback.filter((f) => new Date(f.createdAt) >= monthAgo);
+  const counts = { good: 0, neutral: 0, needs: 0 };
+  for (const f of recent) if (counts[f.rating] != null) counts[f.rating] += 1;
+
+  document.getElementById("fb-total").textContent = recent.length;
+  document.getElementById("fb-good").textContent = counts.good;
+  document.getElementById("fb-neutral").textContent = counts.neutral;
+  document.getElementById("fb-needs").textContent = counts.needs;
+
+  // 8-week stacked bar chart
+  const weeks = [];
+  for (let i = 7; i >= 0; i--) {
+    const ws = startOfWeek(); ws.setDate(ws.getDate() - i * 7);
+    const we = new Date(ws); we.setDate(we.getDate() + 7);
+    const inWeek = state.feedback.filter((f) => {
+      const d = new Date(f.createdAt);
+      return d >= ws && d < we;
+    });
+    weeks.push({
+      start: ws,
+      isCurrent: i === 0,
+      good: inWeek.filter((f) => f.rating === "good").length,
+      neutral: inWeek.filter((f) => f.rating === "neutral").length,
+      needs: inWeek.filter((f) => f.rating === "needs").length,
+    });
+  }
+  renderFeedbackChart(weeks);
+
+  // Log
+  const ul = document.getElementById("fb-list");
+  if (!state.feedback.length) {
+    ul.innerHTML = '<li class="feedback-empty">No feedback logged yet. Click <strong>Add Feedback</strong> to record the first one.</li>';
+    return;
+  }
+  const sorted = state.feedback.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  ul.innerHTML = sorted.map((f) => {
+    const meta = FEEDBACK_RATINGS[f.rating] || FEEDBACK_RATINGS.neutral;
+    const when = new Date(f.createdAt).toLocaleString(undefined, {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit",
+    });
+    const c = f.caseId ? state.cases.find((x) => x.id === f.caseId) : null;
+    const tags = [
+      `<span class="status-pill ${meta.tone}">${meta.label}</span>`,
+      f.account ? `<span class="fb-tag">${escapeHtml(f.account)}</span>` : "",
+      c ? `<a class="fb-tag fb-tag-link" href="#case/${c.id}">${escapeHtml(caseLabel(c))}</a>` : "",
+    ].filter(Boolean).join("");
+    return `
+      <li class="feedback-row" data-id="${f.id}">
+        <div class="feedback-head">
+          <div class="feedback-tags">${tags}</div>
+          <div class="feedback-actions">
+            <span class="feedback-when">${escapeHtml(when)}</span>
+            <button class="btn icon danger-ghost" title="Delete" data-fb-del="${f.id}">${trashIcon}</button>
+          </div>
+        </div>
+        <div class="feedback-note">${escapeHtml(f.note || "(no note)")}</div>
+      </li>`;
+  }).join("");
+  ul.querySelectorAll("[data-fb-del]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.fbDel;
+      if (!confirm("Delete this feedback entry?")) return;
+      state.feedback = state.feedback.filter((f) => f.id !== id);
+      save();
+      renderFeedback();
+    });
+  });
+}
+
+function renderFeedbackChart(weeks) {
+  const wrap = document.getElementById("fb-chart");
+  const totalEl = document.getElementById("fb-chart-total");
+  if (!wrap) return;
+  const total = weeks.reduce((s, w) => s + w.good + w.neutral + w.needs, 0);
+  if (totalEl) totalEl.textContent = String(total);
+  if (total === 0) {
+    wrap.innerHTML = '<div class="chart-empty">No feedback in the last 8 weeks.</div>';
+    return;
+  }
+
+  const W = 760, H = 220, padL = 24, padR = 16, padT = 18, padB = 36;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...weeks.map((w) => w.good + w.neutral + w.needs), 1);
+  const slot = plotW / weeks.length;
+  const barW = Math.min(38, slot - 10);
+  const grid = [0.25, 0.5, 0.75, 1].map((t) => {
+    const y = padT + plotH * (1 - t);
+    return `<line class="bar-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  // Stack: needs (bottom) + neutral + good (top), purple-friendly colors
+  const colors = { good: "#22c55e", neutral: "#a78bfa", needs: "#ef4444" };
+  const bars = weeks.map((w, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const stack = w.good + w.neutral + w.needs;
+    const totalH = (stack / max) * plotH;
+    let y = padT + plotH - totalH;
+    const segs = [];
+    for (const k of ["good", "neutral", "needs"]) {
+      if (w[k] === 0) continue;
+      const segH = (w[k] / stack) * totalH;
+      segs.push(`<rect x="${(cx - barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${Math.max(2, segH).toFixed(1)}" fill="${colors[k]}" opacity="${w.isCurrent ? 1 : 0.78}"/>`);
+      y += segH;
+    }
+    const lbl = stack > 0 ? `<text class="bar-label-v" x="${cx.toFixed(1)}" y="${(padT + plotH - totalH - 6).toFixed(1)}">${stack}</text>` : "";
+    const wkLabel = `Wk ${w.start.getMonth() + 1}/${w.start.getDate()}`;
+    const xLbl = `<text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 16}">${wkLabel.split(" ")[0]}</text>
+                  <text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 4}">${wkLabel.split(" ")[1]}</text>`;
+    return `${segs.join("")}${lbl}${xLbl}`;
+  }).join("");
+
+  const legend = `
+    <g transform="translate(${(padL + 4)}, ${padT - 6})" font-size="10" font-weight="700" letter-spacing="0.06em">
+      <rect x="0" y="-9" width="9" height="9" fill="${colors.good}"/><text x="13" y="-1" fill="${'var(--text-muted)'}">GOOD</text>
+      <rect x="58" y="-9" width="9" height="9" fill="${colors.neutral}"/><text x="71" y="-1" fill="${'var(--text-muted)'}">NEUTRAL</text>
+      <rect x="138" y="-9" width="9" height="9" fill="${colors.needs}"/><text x="151" y="-1" fill="${'var(--text-muted)'}">NEEDS WORK</text>
+    </g>`;
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${grid}
+      ${bars}
+      ${legend}
+    </svg>`;
+}
+
+function openFeedbackModal() {
+  const modal = document.getElementById("fb-modal");
+  if (!modal) return;
+  document.getElementById("fb-rating").value = "good";
+  document.getElementById("fb-account").value = "";
+  document.getElementById("fb-note").value = "";
+  refreshAccountSuggestions();
+  populateCaseSelect("fb-case");
+  modal.hidden = false;
+  setTimeout(() => document.getElementById("fb-note")?.focus(), 50);
+}
+
+function closeFeedbackModal() {
+  const modal = document.getElementById("fb-modal");
+  if (modal) modal.hidden = true;
+}
+
+function saveFeedbackFromModal() {
+  const rating = document.getElementById("fb-rating").value;
+  const account = document.getElementById("fb-account").value.trim();
+  const caseId = document.getElementById("fb-case").value;
+  const note = document.getElementById("fb-note").value.trim();
+  if (!note && !account && !caseId) {
+    alert("Add at least a note, account, or case before saving.");
+    return;
+  }
+  state.feedback.push({
+    id: uid(),
+    createdAt: new Date().toISOString(),
+    rating: FEEDBACK_RATINGS[rating] ? rating : "neutral",
+    account, caseId, note,
+  });
+  save();
+  closeFeedbackModal();
+  renderFeedback();
 }
 
 /* ---------- Productivity page ---------- */
@@ -1610,6 +1786,17 @@ function bindEvents() {
     else clockIn();
   });
   document.getElementById("add-entry-btn").addEventListener("click", addManualEntry);
+
+  const newFbBtn = document.getElementById("new-feedback-btn");
+  if (newFbBtn) newFbBtn.addEventListener("click", openFeedbackModal);
+  const fbSave = document.getElementById("fb-save");
+  if (fbSave) fbSave.addEventListener("click", saveFeedbackFromModal);
+  document.querySelectorAll("#fb-modal [data-fb-close]").forEach((el) => {
+    el.addEventListener("click", closeFeedbackModal);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("fb-modal").hidden) closeFeedbackModal();
+  });
 
   const calPrev = document.getElementById("cal-prev");
   const calNext = document.getElementById("cal-next");
