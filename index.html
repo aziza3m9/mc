@@ -32,6 +32,11 @@
         <span>Cases</span>
         <span class="nav-count" id="nav-case-count">0</span>
       </a>
+      <a class="nav-item" data-route="accounts" href="#accounts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h2M9 13h2M9 17h2M13 9h2M13 13h2M13 17h2"/></svg>
+        <span>Accounts</span>
+        <span class="nav-count" id="nav-accounts-count">0</span>
+      </a>
       <a class="nav-item" data-route="timesheet" href="#timesheet">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         <span>Timesheet</span>
@@ -296,6 +301,28 @@
         <div class="dz-text"><strong>Danger zone.</strong> Deleting this case removes all patient data, documents and codes.</div>
         <button id="delete-case-btn" class="btn danger">Delete Case</button>
       </div>
+    </section>
+
+    <!-- =========================================================== -->
+    <!-- ACCOUNTS PAGE (coding clients you serve)                     -->
+    <!-- =========================================================== -->
+    <section id="page-accounts" class="page" hidden>
+      <header class="page-header">
+        <div>
+          <h1>Accounts</h1>
+          <p class="page-sub">Coding clients you serve — assign each case to one</p>
+        </div>
+        <div class="page-actions">
+          <button id="new-account-btn" class="btn gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Account
+          </button>
+        </div>
+      </header>
+
+      <section class="card">
+        <ul id="accounts-list" class="accounts-list"></ul>
+      </section>
     </section>
 
     <!-- =========================================================== -->

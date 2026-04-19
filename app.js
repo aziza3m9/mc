@@ -9,6 +9,7 @@ const state = {
   caseSearch: "",
   caseStatusFilter: "coding", // coding | review | complete
   calendarMonth: null,        // "YYYY-MM" (null = current month)
+  accounts: [],               // [{id, name, createdAt}] — coding clients you serve
 };
 
 const STATUS_META = {
@@ -457,7 +458,7 @@ function parseRoute() {
   const raw = (location.hash || "#overview").replace(/^#/, "");
   const [head, id] = raw.split("/");
   if (head === "case" && id) return { name: "case", id };
-  if (["overview", "cases", "timesheet", "productivity"].includes(head)) return { name: head, id: null };
+  if (["overview", "cases", "accounts", "timesheet", "productivity"].includes(head)) return { name: head, id: null };
   return { name: "overview", id: null };
 }
 function navigate(route) { location.hash = route; }
@@ -483,6 +484,7 @@ function onRouteChange() {
   }
   if (r.name === "timesheet") renderTimesheet();
   if (r.name === "productivity") renderProductivity();
+  if (r.name === "accounts") renderAccounts();
 }
 
 /* =================================================================
@@ -496,8 +498,45 @@ function render() {
 function renderNavBadges() {
   const countEl = document.getElementById("nav-case-count");
   if (countEl) countEl.textContent = state.cases.length;
+  const accCountEl = document.getElementById("nav-accounts-count");
+  if (accCountEl) accCountEl.textContent = state.accounts.length;
   const dot = document.getElementById("nav-timer-dot");
   if (dot) dot.hidden = !state.activeTimer;
+}
+
+/* ---------- Accounts page ---------- */
+function renderAccounts() {
+  const ul = document.getElementById("accounts-list");
+  if (!ul) return;
+  ul.innerHTML = "";
+  if (!state.accounts.length) {
+    ul.innerHTML = '<li class="accounts-empty">No accounts yet. Click <strong>Add Account</strong> to add the first one.</li>';
+    return;
+  }
+  for (const a of state.accounts) {
+    const used = state.cases.filter((c) => c.accountId === a.id).length;
+    const li = document.createElement("li");
+    li.className = "accounts-row";
+    li.innerHTML = `
+      <input class="account-name" data-id="${a.id}" value="${escapeAttr(a.name)}" />
+      <span class="account-meta">${used} case${used === 1 ? "" : "s"}</span>
+      <button class="btn icon danger-ghost" title="Delete account" data-del="${a.id}">${trashIcon}</button>`;
+    li.querySelector(".account-name").addEventListener("change", (e) => renameAccount(a.id, e.target.value));
+    li.querySelector("[data-del]").addEventListener("click", () => deleteAccount(a.id));
+    ul.appendChild(li);
+  }
+}
+
+function promptNewAccount() {
+  const name = prompt("Account name (e.g. \"Mercy Hospital\"):", "");
+  if (name == null) return;
+  const created = createAccount(name);
+  if (!created) {
+    alert("That account name is empty or already exists.");
+    return;
+  }
+  renderNavBadges();
+  renderAccounts();
 }
 
 function renderTopbar() {
