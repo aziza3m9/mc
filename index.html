@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=23" />
+<link rel="stylesheet" href="styles.css?v=24" />
 </head>
 <body>
 <div class="app">
@@ -31,6 +31,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-3 7 3z"/></svg>
         <span>Cases</span>
         <span class="nav-count" id="nav-case-count">0</span>
+      </a>
+      <a class="nav-item" data-route="accounts" href="#accounts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h2M9 13h2M9 17h2M13 9h2M13 13h2M13 17h2"/></svg>
+        <span>Accounts</span>
+        <span class="nav-count" id="nav-accounts-count">0</span>
       </a>
       <a class="nav-item" data-route="timesheet" href="#timesheet">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -194,7 +199,15 @@
       </header>
 
       <section class="card case-meta-card">
-        <div class="grid three">
+        <div class="grid two">
+          <label>Account
+            <select id="case-account"><option value="">— No account —</option></select>
+          </label>
+          <label>Assigned to
+            <input id="case-assignee" type="text" placeholder="Employee name" />
+          </label>
+        </div>
+        <div class="grid two" style="margin-top: 14px;">
           <label>Status
             <select id="case-status">
               <option value="assigned">Assigned</option>
@@ -202,9 +215,6 @@
               <option value="review">In Review</option>
               <option value="complete">Complete</option>
             </select>
-          </label>
-          <label>Assigned to
-            <input id="case-assignee" type="text" placeholder="Employee name" />
           </label>
           <label>Due Date
             <input id="case-due-date" type="date" />
@@ -290,6 +300,28 @@
         <div class="dz-text"><strong>Danger zone.</strong> Deleting this case removes all patient data, documents and codes.</div>
         <button id="delete-case-btn" class="btn danger">Delete Case</button>
       </div>
+    </section>
+
+    <!-- =========================================================== -->
+    <!-- ACCOUNTS PAGE (coding clients you serve)                     -->
+    <!-- =========================================================== -->
+    <section id="page-accounts" class="page" hidden>
+      <header class="page-header">
+        <div>
+          <h1>Accounts</h1>
+          <p class="page-sub">Coding clients you serve — assign each case to one</p>
+        </div>
+        <div class="page-actions">
+          <button id="new-account-btn" class="btn gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Account
+          </button>
+        </div>
+      </header>
+
+      <section class="card">
+        <ul id="accounts-list" class="accounts-list"></ul>
+      </section>
     </section>
 
     <!-- =========================================================== -->
@@ -487,6 +519,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>
