@@ -9,7 +9,6 @@ const state = {
   caseSearch: "",
   caseStatusFilter: "coding", // coding | review | complete
   calendarMonth: null,        // "YYYY-MM" (null = current month)
-  accounts: [],               // [{id, name, createdAt}] — coding clients you serve
 };
 
 const STATUS_META = {
@@ -53,14 +52,21 @@ function load() {
   } catch (e) { console.warn("Failed to load", e); }
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
   // Backfill new case fields on previously-stored data.
+  // One-time migration: convert any prior accountId refs (managed-list model)
+  // into free-text c.account using the saved account name, then drop the
+  // accounts list entirely.
+  const legacyAccounts = Array.isArray(state.accounts) ? state.accounts : [];
+  const legacyById = Object.fromEntries(legacyAccounts.map((a) => [a.id, a.name || ""]));
   for (const c of state.cases) {
     if (!c.status) c.status = "coding";
     if (typeof c.assignee !== "string") c.assignee = "";
     if (typeof c.dueDate !== "string") c.dueDate = "";
     if (typeof c.completedAt !== "string") c.completedAt = "";
-    if (typeof c.accountId !== "string") c.accountId = "";
+    if (typeof c.account !== "string") c.account = "";
+    if (!c.account && c.accountId && legacyById[c.accountId]) c.account = legacyById[c.accountId];
+    if ("accountId" in c) delete c.accountId;
   }
-  if (!Array.isArray(state.accounts)) state.accounts = [];
+  if ("accounts" in state) delete state.accounts;
   for (const e of state.timesheet) {
     if (typeof e.employee !== "string") e.employee = "";
   }
@@ -82,6 +88,9 @@ function escapeAttr(s) { return escapeHtml(s); }
 function getActive() { return state.cases.find((c) => c.id === state.activeId) || null; }
 
 function createCase() {
+  // Default the new case's account to whatever the most-recent case used,
+  // so the typical coder doesn't have to retype it every time.
+  const lastAccount = state.cases.find((c) => c.account)?.account || "";
   const c = {
     id: uid(),
     createdAt: new Date().toISOString(),
@@ -90,7 +99,7 @@ function createCase() {
     status: "coding",
     assignee: DEFAULT_USER,
     dueDate: "",
-    accountId: state.accounts[0]?.id || "",
+    account: lastAccount,
   };
   state.cases.unshift(c);
   state.activeId = c.id;
@@ -113,45 +122,21 @@ function caseLabel(c) {
 }
 
 /* =================================================================
-   ACCOUNTS (coding clients)
+   ACCOUNTS (free-text + autocomplete from past values)
 ================================================================= */
-function getAccount(id) { return state.accounts.find((a) => a.id === id) || null; }
-function accountName(id) { const a = getAccount(id); return a ? a.name : ""; }
-
-function createAccount(name) {
-  const trimmed = (name || "").trim();
-  if (!trimmed) return null;
-  // Reject duplicates by case-insensitive name match
-  if (state.accounts.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) return null;
-  const a = { id: uid(), name: trimmed, createdAt: new Date().toISOString() };
-  state.accounts.push(a);
-  state.accounts.sort((x, y) => x.name.localeCompare(y.name));
-  save();
-  return a;
+function uniqueAccounts() {
+  const set = new Set();
+  for (const c of state.cases) {
+    const v = (c.account || "").trim();
+    if (v) set.add(v);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
-function renameAccount(id, name) {
-  const a = getAccount(id);
-  if (!a) return;
-  const trimmed = (name || "").trim();
-  if (!trimmed) return;
-  a.name = trimmed;
-  state.accounts.sort((x, y) => x.name.localeCompare(y.name));
-  save();
-}
-
-function deleteAccount(id) {
-  const a = getAccount(id);
-  if (!a) return;
-  const used = state.cases.filter((c) => c.accountId === id).length;
-  const msg = used
-    ? `Delete account "${a.name}"? ${used} case${used === 1 ? "" : "s"} will lose its account assignment.`
-    : `Delete account "${a.name}"?`;
-  if (!confirm(msg)) return;
-  state.accounts = state.accounts.filter((x) => x.id !== id);
-  for (const c of state.cases) if (c.accountId === id) c.accountId = "";
-  save();
-  render();
+function refreshAccountSuggestions() {
+  const dl = document.getElementById("account-suggestions");
+  if (!dl) return;
+  dl.innerHTML = uniqueAccounts().map((n) => `<option value="${escapeAttr(n)}"></option>`).join("");
 }
 
 /* =================================================================
@@ -472,7 +457,7 @@ function parseRoute() {
   const raw = (location.hash || "#overview").replace(/^#/, "");
   const [head, id] = raw.split("/");
   if (head === "case" && id) return { name: "case", id };
-  if (["overview", "cases", "accounts", "timesheet", "productivity"].includes(head)) return { name: head, id: null };
+  if (["overview", "cases", "timesheet", "productivity"].includes(head)) return { name: head, id: null };
   return { name: "overview", id: null };
 }
 function navigate(route) { location.hash = route; }
@@ -498,7 +483,6 @@ function onRouteChange() {
   }
   if (r.name === "timesheet") renderTimesheet();
   if (r.name === "productivity") renderProductivity();
-  if (r.name === "accounts") renderAccounts();
 }
 
 /* =================================================================
@@ -512,45 +496,8 @@ function render() {
 function renderNavBadges() {
   const countEl = document.getElementById("nav-case-count");
   if (countEl) countEl.textContent = state.cases.length;
-  const accCountEl = document.getElementById("nav-accounts-count");
-  if (accCountEl) accCountEl.textContent = state.accounts.length;
   const dot = document.getElementById("nav-timer-dot");
   if (dot) dot.hidden = !state.activeTimer;
-}
-
-/* ---------- Accounts page ---------- */
-function renderAccounts() {
-  const ul = document.getElementById("accounts-list");
-  if (!ul) return;
-  ul.innerHTML = "";
-  if (!state.accounts.length) {
-    ul.innerHTML = '<li class="accounts-empty">No accounts yet. Click <strong>Add Account</strong> to add the first one.</li>';
-    return;
-  }
-  for (const a of state.accounts) {
-    const used = state.cases.filter((c) => c.accountId === a.id).length;
-    const li = document.createElement("li");
-    li.className = "accounts-row";
-    li.innerHTML = `
-      <input class="account-name" data-id="${a.id}" value="${escapeAttr(a.name)}" />
-      <span class="account-meta">${used} case${used === 1 ? "" : "s"}</span>
-      <button class="btn icon danger-ghost" title="Delete account" data-del="${a.id}">${trashIcon}</button>`;
-    li.querySelector(".account-name").addEventListener("change", (e) => renameAccount(a.id, e.target.value));
-    li.querySelector("[data-del]").addEventListener("click", () => deleteAccount(a.id));
-    ul.appendChild(li);
-  }
-}
-
-function promptNewAccount() {
-  const name = prompt("Account name (e.g. \"Mercy Hospital\"):", "");
-  if (name == null) return;
-  const created = createAccount(name);
-  if (!created) {
-    alert("That account name is empty or already exists.");
-    return;
-  }
-  renderNavBadges();
-  renderAccounts();
 }
 
 function renderTopbar() {
@@ -979,8 +926,7 @@ function renderCasesIndex() {
     const meta = STATUS_META[status] || STATUS_META.coding;
     const name = caseLabel(c);
     const dos = c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10);
-    const acctName = accountName(c.accountId);
-    const info = [acctName, c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
+    const info = [c.account, c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
       .filter(Boolean)
       .join(" · ") || "No patient info yet";
     const assignee = c.assignee
@@ -1040,7 +986,9 @@ function renderCaseDetail() {
   if (assigneeEl) assigneeEl.value = c.assignee || "";
   const dueEl = document.getElementById("case-due-date");
   if (dueEl) dueEl.value = c.dueDate || "";
-  populateAccountSelect("case-account", c.accountId || "");
+  const accountEl = document.getElementById("case-account");
+  if (accountEl) accountEl.value = c.account || "";
+  refreshAccountSuggestions();
 
   renderDocList("op-list", c.opDocs, "op");
   renderDocList("dx-list", c.dxDocs, "dx");
@@ -1307,18 +1255,6 @@ function populateCaseSelect(id) {
   sel.value = current || "";
 }
 
-function populateAccountSelect(id, selectedId) {
-  const sel = document.getElementById(id);
-  if (!sel) return;
-  sel.innerHTML = '<option value="">— No account —</option>';
-  for (const a of state.accounts) {
-    const opt = document.createElement("option");
-    opt.value = a.id;
-    opt.textContent = a.name;
-    sel.appendChild(opt);
-  }
-  sel.value = selectedId || "";
-}
 
 function renderEntriesTable() {
   const tbody = document.querySelector("#entries-table tbody");
@@ -1575,17 +1511,16 @@ function bindEvents() {
       save();
     });
   }
-  const accountSel = document.getElementById("case-account");
-  if (accountSel) {
-    accountSel.addEventListener("change", () => {
+  const accountInput = document.getElementById("case-account");
+  if (accountInput) {
+    accountInput.addEventListener("input", () => {
       const c = getActive();
       if (!c) return;
-      c.accountId = accountSel.value;
+      c.account = accountInput.value;
       save();
     });
+    accountInput.addEventListener("change", refreshAccountSuggestions);
   }
-  const newAccountBtn = document.getElementById("new-account-btn");
-  if (newAccountBtn) newAccountBtn.addEventListener("click", promptNewAccount);
 
   document.getElementById("upload-op").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("op", e.target.files); e.target.value = "";
