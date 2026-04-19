@@ -284,6 +284,16 @@ function updateTimerDisplay() {
     btn.textContent = "Clock Out";
     btn.classList.remove("primary");
     btn.classList.add("danger");
+    // Keep KPIs ticking in real time while the timer runs.
+    const pageTs = document.getElementById("page-timesheet");
+    if (pageTs && !pageTs.hidden) renderKpis();
+    const pageOv = document.getElementById("page-overview");
+    if (pageOv && !pageOv.hidden) {
+      const k1 = document.getElementById("kpi-hours-today");
+      const k2 = document.getElementById("kpi-hours-week");
+      if (k1) k1.textContent = hoursToHMS(sumHours(filterEntriesSince(startOfToday())) + runningHoursSince(startOfToday()));
+      if (k2) k2.textContent = hoursToHMS(sumHours(filterEntriesSince(startOfWeek())) + runningHoursSince(startOfWeek()));
+    }
   } else {
     timerEl.textContent = "00:00:00";
     timerEl.classList.remove("active");
@@ -383,6 +393,17 @@ function filterEntriesBetween(fromInclusive, toExclusive) {
     const d = new Date(e.date);
     return d >= fromInclusive && d < toExclusive;
   });
+}
+
+// Hours accumulated by the currently-running timer, counted from `cutoff`.
+// Pass `null` to count the timer's full elapsed time (for the All-Time KPI).
+function runningHoursSince(cutoff) {
+  const t = state.activeTimer;
+  if (!t) return 0;
+  const fromMs = cutoff ? Math.max(t.startedAt, cutoff.getTime()) : t.startedAt;
+  const toMs = Date.now();
+  const ms = Math.max(0, toMs - fromMs);
+  return ms / 3600000;
 }
 function ymd(d) {
   const y = d.getFullYear();
@@ -609,8 +630,8 @@ function renderDueToday() {
 
 function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
-  document.getElementById("kpi-hours-today").textContent = hoursToHM(sumHours(filterEntriesSince(startOfToday())));
-  document.getElementById("kpi-hours-week").textContent = hoursToHM(sumHours(filterEntriesSince(startOfWeek())));
+  document.getElementById("kpi-hours-today").textContent = hoursToHMS(sumHours(filterEntriesSince(startOfToday())) + runningHoursSince(startOfToday()));
+  document.getElementById("kpi-hours-week").textContent = hoursToHMS(sumHours(filterEntriesSince(startOfWeek())) + runningHoursSince(startOfWeek()));
   computeKpiTrends();
   renderChart();
   renderDueToday();
@@ -1023,11 +1044,11 @@ function renderTimesheet() {
 }
 
 function renderKpis() {
-  const today = sumHours(filterEntriesSince(startOfToday()));
-  const week = sumHours(filterEntriesSince(startOfWeek()));
-  const month = sumHours(filterEntriesSince(startOfMonth()));
-  const total = sumHours(state.timesheet);
-  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = hoursToHM(val); };
+  const today = sumHours(filterEntriesSince(startOfToday())) + runningHoursSince(startOfToday());
+  const week = sumHours(filterEntriesSince(startOfWeek())) + runningHoursSince(startOfWeek());
+  const month = sumHours(filterEntriesSince(startOfMonth())) + runningHoursSince(startOfMonth());
+  const total = sumHours(state.timesheet) + runningHoursSince(null);
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = hoursToHMS(val); };
   set("ts-today", today);
   set("ts-week", week);
   set("ts-month", month);
@@ -1352,3 +1373,14 @@ bindEvents();
 renderTopbar();
 render();
 if (state.activeTimer) startTimerLoop();
+
+// Defensive persistence: if the tab is hidden or closed while the timer is
+// running, flush `state` to localStorage. The timer itself is driven by the
+// absolute `startedAt` timestamp, so on reopen it picks up where it left off.
+function flushState() { try { save(); } catch (_) {} }
+window.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushState();
+  else if (state.activeTimer && !timerInterval) startTimerLoop();
+});
+window.addEventListener("pagehide", flushState);
+window.addEventListener("beforeunload", flushState);
