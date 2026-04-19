@@ -56,6 +56,7 @@ function load() {
     if (!c.status) c.status = "coding";
     if (typeof c.assignee !== "string") c.assignee = "";
     if (typeof c.dueDate !== "string") c.dueDate = "";
+    if (typeof c.completedAt !== "string") c.completedAt = "";
   }
   for (const e of state.timesheet) {
     if (typeof e.employee !== "string") e.employee = "";
@@ -507,6 +508,20 @@ function setTrendChip(el, current, previous, { unit = "", mode = "percent" } = {
   el.innerHTML = `${icon}<span>${label}</span>`;
 }
 
+function casesCodedBetween(fromInclusive, toExclusive) {
+  return state.cases.filter((c) => {
+    if (c.status !== "complete" || !c.completedAt) return false;
+    const d = new Date(c.completedAt);
+    return d >= fromInclusive && d < toExclusive;
+  }).length;
+}
+function casesCodedSince(cutoff) {
+  return state.cases.filter((c) => {
+    if (c.status !== "complete" || !c.completedAt) return false;
+    return new Date(c.completedAt) >= cutoff;
+  }).length;
+}
+
 function computeKpiTrends() {
   const now = new Date();
   const today0 = startOfToday();
@@ -514,12 +529,14 @@ function computeKpiTrends() {
   const prevWeekStart = new Date(weekStart); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
   const yesterday = new Date(today0); yesterday.setDate(yesterday.getDate() - 1);
 
-  const weekAgo = new Date(today0); weekAgo.setDate(weekAgo.getDate() - 7);
   const casesAddedThisWeek = state.cases.filter((c) => new Date(c.createdAt) >= weekStart).length;
   const casesAddedPrevWeek = state.cases.filter((c) => {
     const d = new Date(c.createdAt);
     return d >= prevWeekStart && d < weekStart;
   }).length;
+
+  const codedToday = casesCodedSince(today0);
+  const codedYesterday = casesCodedBetween(yesterday, today0);
 
   const hoursToday = sumHours(filterEntriesSince(today0));
   const hoursYesterday = sumHours(filterEntriesBetween(yesterday, today0));
@@ -527,6 +544,7 @@ function computeKpiTrends() {
   const hoursPrevWeek = sumHours(filterEntriesBetween(prevWeekStart, weekStart));
 
   setTrendChip(document.getElementById("trend-cases"), casesAddedThisWeek, casesAddedPrevWeek, { unit: "", mode: "delta" });
+  setTrendChip(document.getElementById("trend-coded-today"), codedToday, codedYesterday, { unit: "", mode: "delta" });
   setTrendChip(document.getElementById("trend-hours-today"), hoursToday, hoursYesterday, { unit: "h", mode: "percent" });
   setTrendChip(document.getElementById("trend-hours-week"), hoursThisWeek, hoursPrevWeek, { unit: "h", mode: "percent" });
 }
@@ -631,6 +649,7 @@ function renderDueToday() {
 
 function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
+  document.getElementById("kpi-coded-today").textContent = casesCodedSince(startOfToday());
   document.getElementById("kpi-hours-today").textContent = hoursToHMS(sumHours(filterEntriesSince(startOfToday())) + runningHoursSince(startOfToday()));
   document.getElementById("kpi-hours-week").textContent = hoursToHMS(sumHours(filterEntriesSince(startOfWeek())) + runningHoursSince(startOfWeek()));
   computeKpiTrends();
@@ -1292,7 +1311,14 @@ function bindEvents() {
     statusSel.addEventListener("change", () => {
       const c = getActive();
       if (!c) return;
+      const prev = c.status;
       c.status = statusSel.value;
+      // Track when a case is marked complete; clear if it leaves complete.
+      if (c.status === "complete" && prev !== "complete") {
+        c.completedAt = new Date().toISOString();
+      } else if (c.status !== "complete") {
+        c.completedAt = "";
+      }
       save();
       const badge = document.getElementById("case-status-badge");
       if (badge) {

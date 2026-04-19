@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MedCode · Productivity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=22" />
+<style>
+  /* Productivity dashboard — uses the same palette, but no sidebar.
+     Shares localStorage with the main app. */
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  .prod-shell {
+    flex: 1;
+    width: 100%;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 44px 64px;
+  }
+  .prod-shell > .page { padding-top: 28px; }
+  .prod-back {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+  }
+  .prod-back a { color: var(--gold-hover); text-decoration: none; }
+  .prod-back a:hover { color: var(--gold); text-decoration: underline; }
+  .bars-wrap { position: relative; height: 220px; }
+  .bars-wrap svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .bar-rect { fill: url(#barGradient); }
+  .bar-rect.today { fill: url(#barGradientToday); }
+  .bar-label-x { font-size: 10px; fill: var(--text-muted); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; text-anchor: middle; }
+  .bar-label-v { font-size: 11px; fill: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; text-anchor: middle; }
+  .bar-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.7; }
+  .leaderboard { list-style: none; margin: 0; padding: 0; }
+  .leaderboard li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .leaderboard li:last-child { border-bottom: none; }
+  .leaderboard .lb-name { font-weight: 600; color: var(--text); }
+  .leaderboard .lb-stat { font-variant-numeric: tabular-nums; color: var(--gold-hover); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-search" style="visibility: hidden;"></div>
+  <div class="topbar-meta">
+    <div class="topbar-date" id="topbar-date">—</div>
+    <div class="topbar-user">
+      <span class="topbar-avatar">CL</span>
+      <span>Clarence</span>
+    </div>
+  </div>
+</div>
+
+<div class="prod-shell">
+  <section class="page">
+    <div class="prod-back"><a href="index.html#overview">← Back to dashboard</a></div>
+
+    <header class="page-header">
+      <div>
+        <h1>Productivity</h1>
+        <p class="page-sub">Throughput, hours per case, and cases per hour</p>
+      </div>
+    </header>
+
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi-label">Coded Today</div>
+        <div class="kpi-value" id="p-coded-today">0</div>
+        <span class="kpi-trend-note">Charts marked complete today</span>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Coded This Week</div>
+        <div class="kpi-value" id="p-coded-week">0</div>
+        <span class="kpi-trend-note">Mon → today</span>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Avg Hours / Case</div>
+        <div class="kpi-value" id="p-hours-per-case">0.00</div>
+        <span class="kpi-trend-note">Last 30 days</span>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Cases / Hour</div>
+        <div class="kpi-value" id="p-cases-per-hour">0.00</div>
+        <span class="kpi-trend-note">Last 30 days</span>
+      </div>
+    </div>
+
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="12" width="3" height="6"/><rect x="11" y="8" width="3" height="10"/><rect x="16" y="4" width="3" height="14"/></svg>
+          Charts Coded · Last 14 Days
+        </h2>
+        <div class="chart-meta">
+          <span>Total</span>
+          <strong id="p-bars-total">0</strong>
+        </div>
+      </div>
+      <div class="bars-wrap" id="p-bars"></div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg>
+          Hours Logged · Last 14 Days
+        </h2>
+        <div class="chart-meta">
+          <span>Total</span>
+          <strong id="p-hours-total">0.00h</strong>
+        </div>
+      </div>
+      <div class="chart-wrap" id="p-line"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Charts Coded by Coder · Last 30 Days
+        </h2>
+      </div>
+      <ul id="p-leaderboard" class="leaderboard"></ul>
+    </section>
+  </section>
+</div>
+
+<script>
+/* =========================================================================
+   Productivity dashboard — reads the same localStorage key as the main app.
+   No mutations: this page is read-only.
+========================================================================= */
+const STORAGE_KEY = "mc_dashboard_v2";
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { cases: [], timesheet: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      cases: Array.isArray(parsed.cases) ? parsed.cases : [],
+      timesheet: Array.isArray(parsed.timesheet) ? parsed.timesheet : [],
+    };
+  } catch (_) { return { cases: [], timesheet: [] }; }
+}
+
+function startOfToday() { const d = new Date(); d.setHours(0,0,0,0); return d; }
+function startOfWeek()  { const d = startOfToday(); const day = d.getDay(); d.setDate(d.getDate() - ((day + 6) % 7)); return d; }
+function ymd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function sumHours(entries) { return entries.reduce((s, e) => s + (Number(e.hours) || 0), 0); }
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+function renderTopbarDate() {
+  const el = document.getElementById("topbar-date");
+  if (el) el.textContent = new Date().toLocaleDateString(undefined, {
+    weekday: "short", month: "short", day: "numeric", year: "numeric"
+  });
+}
+
+function render() {
+  renderTopbarDate();
+  const { cases, timesheet } = loadState();
+
+  const today0 = startOfToday();
+  const weekStart = startOfWeek();
+  const monthAgo = new Date(today0); monthAgo.setDate(monthAgo.getDate() - 30);
+
+  const completedCases = cases.filter((c) => c.status === "complete" && c.completedAt);
+
+  // KPIs
+  const codedToday = completedCases.filter((c) => new Date(c.completedAt) >= today0).length;
+  const codedWeek = completedCases.filter((c) => new Date(c.completedAt) >= weekStart).length;
+  const codedMonth = completedCases.filter((c) => new Date(c.completedAt) >= monthAgo).length;
+  const hoursMonth = sumHours(timesheet.filter((e) => new Date(e.date) >= monthAgo));
+  const hoursPerCase = codedMonth > 0 ? hoursMonth / codedMonth : 0;
+  const casesPerHour = hoursMonth > 0 ? codedMonth / hoursMonth : 0;
+
+  document.getElementById("p-coded-today").textContent = codedToday;
+  document.getElementById("p-coded-week").textContent = codedWeek;
+  document.getElementById("p-hours-per-case").textContent = hoursPerCase.toFixed(2);
+  document.getElementById("p-cases-per-hour").textContent = casesPerHour.toFixed(2);
+
+  // Bar chart: charts coded per day, last 14 days
+  const days = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today0); d.setDate(d.getDate() - i);
+    const key = ymd(d);
+    const count = completedCases.filter((c) => ymd(new Date(c.completedAt)) === key).length;
+    days.push({ date: d, key, count, isToday: i === 0 });
+  }
+  renderBars("p-bars", "p-bars-total", days);
+
+  // Line chart: hours logged per day, last 14 days
+  const hourDays = days.map(({ date, key, isToday }) => ({
+    date, key, isToday,
+    hours: sumHours(timesheet.filter((e) => e.date === key)),
+  }));
+  renderLine("p-line", "p-hours-total", hourDays);
+
+  // Leaderboard: charts coded by coder in the last 30 days
+  const byCoder = {};
+  for (const c of completedCases) {
+    if (new Date(c.completedAt) < monthAgo) continue;
+    const name = (c.assignee || "Unassigned").trim() || "Unassigned";
+    byCoder[name] = (byCoder[name] || 0) + 1;
+  }
+  const leaderboard = document.getElementById("p-leaderboard");
+  const sorted = Object.entries(byCoder).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) {
+    leaderboard.innerHTML = '<li><span class="lb-name" style="color:var(--text-subtle);font-style:italic;font-weight:500">No completed charts in the last 30 days.</span></li>';
+  } else {
+    leaderboard.innerHTML = sorted.map(([name, n]) => `
+      <li>
+        <span class="lb-name">${escapeHtml(name)}</span>
+        <span class="lb-stat">${n} chart${n === 1 ? "" : "s"}</span>
+      </li>`).join("");
+  }
+}
+
+function renderBars(wrapId, totalId, days) {
+  const wrap = document.getElementById(wrapId);
+  const totalEl = document.getElementById(totalId);
+  if (!wrap) return;
+  const total = days.reduce((s, d) => s + d.count, 0);
+  if (totalEl) totalEl.textContent = String(total);
+
+  if (total === 0) {
+    wrap.innerHTML = '<div class="chart-empty">No charts coded in the last 14 days.</div>';
+    return;
+  }
+
+  const W = 760, H = 220, padL = 24, padR = 16, padT = 18, padB = 32;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.count), 1);
+  const slot = plotW / days.length;
+  const barW = Math.min(34, slot - 8);
+
+  const grid = [0.25, 0.5, 0.75, 1].map((t) => {
+    const y = padT + plotH * (1 - t);
+    return `<line class="bar-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+
+  const bars = days.map((d, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const h = (d.count / max) * plotH;
+    const y = padT + plotH - h;
+    const cls = d.isToday ? "bar-rect today" : "bar-rect";
+    const label = d.count > 0 ? `<text class="bar-label-v" x="${cx.toFixed(1)}" y="${(y - 6).toFixed(1)}">${d.count}</text>` : "";
+    const dow = d.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3).toUpperCase();
+    const dom = d.date.getDate();
+    const xLabel = `<text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 16}">${dow}</text>
+                    <text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 4}">${dom}</text>`;
+    return `<rect class="${cls}" x="${(cx - barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${Math.max(2, h).toFixed(1)}" rx="3"/>${label}${xLabel}`;
+  }).join("");
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#a855f7"/>
+          <stop offset="100%" stop-color="#6d28d9"/>
+        </linearGradient>
+        <linearGradient id="barGradientToday" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#d8b4fe"/>
+          <stop offset="100%" stop-color="#7c3aed"/>
+        </linearGradient>
+      </defs>
+      ${grid}
+      ${bars}
+    </svg>`;
+}
+
+function renderLine(wrapId, totalId, days) {
+  const wrap = document.getElementById(wrapId);
+  const totalEl = document.getElementById(totalId);
+  if (!wrap) return;
+  const total = days.reduce((s, d) => s + d.hours, 0);
+  if (totalEl) totalEl.textContent = `${total.toFixed(2)}h`;
+
+  if (total === 0) {
+    wrap.innerHTML = '<div class="chart-empty">No hours logged in the last 14 days.</div>';
+    return;
+  }
+
+  const W = 760, H = 200, padL = 24, padR = 16, padT = 16, padB = 30;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.hours), 1);
+  const step = plotW / (days.length - 1);
+  const points = days.map((d, i) => {
+    const x = padL + i * step;
+    const y = padT + plotH - (d.hours / max) * plotH;
+    return { ...d, x, y };
+  });
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L ${points[points.length-1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${points[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+  const grid = [0.25, 0.5, 0.75].map((t) => {
+    const y = padT + plotH * t;
+    return `<line class="chart-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  const dots = points.map((p) => `<circle class="chart-dot${p.isToday ? ' today' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isToday ? 5 : 3}"/>`).join("");
+  const labels = points.map((p) => {
+    const dow = p.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1).toUpperCase();
+    return `<text class="chart-axis-label" x="${p.x.toFixed(1)}" y="${H - 8}">${dow}</text>`;
+  }).join("");
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#9333ea" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#9333ea" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${grid}
+      <path class="chart-area" d="${areaPath}"/>
+      <path class="chart-line" d="${linePath}"/>
+      ${dots}
+      ${labels}
+    </svg>`;
+}
+
+render();
+// Refresh every 30s so the dashboard stays current if left open.
+setInterval(render, 30000);
+// Re-render when the tab is re-focused (data may have changed in the main app).
+window.addEventListener("focus", render);
+window.addEventListener("storage", (e) => { if (e.key === STORAGE_KEY) render(); });
+</script>
+</body>
+</html>
