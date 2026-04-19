@@ -7,9 +7,54 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=30" />
+<link rel="stylesheet" href="styles.css?v=31" />
 </head>
 <body>
+
+<!-- =========================================================== -->
+<!-- LOCK SCREEN  (covers the app until the password is accepted) -->
+<!-- =========================================================== -->
+<div id="lock-screen" class="lock-screen" hidden>
+  <div class="lock-card">
+    <div class="lock-brand">
+      <div class="brand-mark">R<span style="font-size:0.7em;vertical-align:sub;">x</span></div>
+      <div>
+        <div class="brand-title">MedCode</div>
+        <div class="brand-sub">Private Ledger</div>
+      </div>
+    </div>
+
+    <div id="lock-setup" hidden>
+      <h2>Set a password</h2>
+      <p class="lock-sub">First-time setup. Clarence will enter this password to access the dashboard.</p>
+      <form id="lock-setup-form" autocomplete="off">
+        <label>New password
+          <input id="lock-new-pw" type="password" autocomplete="new-password" required minlength="4" />
+        </label>
+        <label>Confirm password
+          <input id="lock-new-pw2" type="password" autocomplete="new-password" required minlength="4" />
+        </label>
+        <div class="lock-error" id="lock-setup-error" hidden></div>
+        <button type="submit" class="btn primary lg">Create password</button>
+      </form>
+    </div>
+
+    <div id="lock-login" hidden>
+      <h2>Welcome back</h2>
+      <p class="lock-sub">Enter your password to continue.</p>
+      <form id="lock-login-form" autocomplete="off">
+        <label>Password
+          <input id="lock-pw" type="password" autocomplete="current-password" required />
+        </label>
+        <div class="lock-error" id="lock-login-error" hidden></div>
+        <button type="submit" class="btn primary lg">Unlock</button>
+        <button type="button" id="lock-reset-btn" class="btn ghost sm">Forgot password — reset app</button>
+      </form>
+    </div>
+  </div>
+  <p class="lock-footnote">Client-side lock only. Not a substitute for server-side authentication.</p>
+</div>
+
 <div class="app">
 
   <!-- Sidebar: persistent navigation -->
@@ -63,6 +108,9 @@
         <div class="topbar-user" title="Signed in as Clarence">
           <span class="topbar-avatar">CL</span>
           <span>Clarence</span>
+          <button id="topbar-signout" class="topbar-signout" title="Sign out" aria-label="Sign out">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
         </div>
       </div>
     </div>
@@ -628,6 +676,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=30"></script>
+<script src="app.js?v=31"></script>
 </body>
 </html>

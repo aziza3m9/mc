@@ -1663,6 +1663,12 @@ async function importAll(file) {
 function bindEvents() {
   window.addEventListener("hashchange", onRouteChange);
 
+  const signoutBtn = document.getElementById("topbar-signout");
+  if (signoutBtn) signoutBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (confirm("Sign out? You'll need the password to get back in.")) signOut();
+  });
+
   document.querySelectorAll(".nav-item").forEach((n) => {
     n.addEventListener("click", (e) => { /* default anchor behavior sets hash */ });
   });
@@ -1820,11 +1826,131 @@ function bindEvents() {
 /* =================================================================
    INIT
 ================================================================= */
-load();
-bindEvents();
-renderTopbar();
-render();
-if (state.activeTimer) startTimerLoop();
+/* =================================================================
+   LOCK SCREEN (client-side password gate — not real authentication)
+================================================================= */
+const AUTH_KEY = "mc_auth_v1";        // { saltHex, hashHex }
+const SESSION_KEY = "mc_auth_session"; // sessionStorage token
+
+function authStored() {
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY)); }
+  catch (_) { return null; }
+}
+
+async function sha256Hex(text) {
+  const buf = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function randomSaltHex() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function authSetPassword(pw) {
+  const saltHex = randomSaltHex();
+  const hashHex = await sha256Hex(saltHex + ":" + pw);
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ saltHex, hashHex }));
+}
+
+async function authVerifyPassword(pw) {
+  const rec = authStored();
+  if (!rec) return false;
+  const hashHex = await sha256Hex(rec.saltHex + ":" + pw);
+  return hashHex === rec.hashHex;
+}
+
+function isUnlocked() { return sessionStorage.getItem(SESSION_KEY) === "1"; }
+function markUnlocked() { sessionStorage.setItem(SESSION_KEY, "1"); }
+function signOut() {
+  sessionStorage.removeItem(SESSION_KEY);
+  location.reload();
+}
+
+function showLockScreen() {
+  document.getElementById("lock-screen").hidden = false;
+  document.querySelector(".app").style.display = "none";
+  const rec = authStored();
+  document.getElementById("lock-setup").hidden = !!rec;
+  document.getElementById("lock-login").hidden = !rec;
+  setTimeout(() => {
+    const target = rec ? document.getElementById("lock-pw") : document.getElementById("lock-new-pw");
+    target?.focus();
+  }, 60);
+}
+
+function hideLockScreen() {
+  document.getElementById("lock-screen").hidden = true;
+  document.querySelector(".app").style.display = "";
+}
+
+function showLockError(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+}
+function clearLockError(id) {
+  const el = document.getElementById(id);
+  if (el) el.hidden = true;
+}
+
+function bindLockEvents() {
+  document.getElementById("lock-setup-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearLockError("lock-setup-error");
+    const pw1 = document.getElementById("lock-new-pw").value;
+    const pw2 = document.getElementById("lock-new-pw2").value;
+    if (pw1.length < 4) return showLockError("lock-setup-error", "Use at least 4 characters.");
+    if (pw1 !== pw2) return showLockError("lock-setup-error", "Passwords don't match.");
+    await authSetPassword(pw1);
+    markUnlocked();
+    hideLockScreen();
+    bootApp();
+  });
+  document.getElementById("lock-login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearLockError("lock-login-error");
+    const pw = document.getElementById("lock-pw").value;
+    const ok = await authVerifyPassword(pw);
+    if (!ok) {
+      showLockError("lock-login-error", "Incorrect password.");
+      document.getElementById("lock-pw").select();
+      return;
+    }
+    markUnlocked();
+    hideLockScreen();
+    bootApp();
+  });
+  document.getElementById("lock-reset-btn").addEventListener("click", () => {
+    const warn = "RESET THE APP?\n\nThis removes the password AND all locally-stored data (cases, timesheet, feedback). There is no recovery. Continue?";
+    if (!confirm(warn)) return;
+    try { localStorage.removeItem(AUTH_KEY); } catch (_) {}
+    try { localStorage.removeItem("mc_dashboard_v2"); } catch (_) {}
+    sessionStorage.clear();
+    location.reload();
+  });
+}
+
+let appBooted = false;
+function bootApp() {
+  if (appBooted) return;
+  appBooted = true;
+  load();
+  bindEvents();
+  renderTopbar();
+  render();
+  if (state.activeTimer) startTimerLoop();
+}
+
+bindLockEvents();
+if (isUnlocked()) {
+  bootApp();
+} else {
+  showLockScreen();
+}
 
 // Defensive persistence: if the tab is hidden or closed while the timer is
 // running, flush `state` to localStorage. The timer itself is driven by the
