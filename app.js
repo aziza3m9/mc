@@ -88,9 +88,6 @@ function escapeAttr(s) { return escapeHtml(s); }
 function getActive() { return state.cases.find((c) => c.id === state.activeId) || null; }
 
 function createCase() {
-  // Default the new case's account to whatever the most-recent case used,
-  // so the typical coder doesn't have to retype it every time.
-  const lastAccount = state.cases.find((c) => c.account)?.account || "";
   const c = {
     id: uid(),
     createdAt: new Date().toISOString(),
