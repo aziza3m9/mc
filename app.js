@@ -426,7 +426,7 @@ function parseRoute() {
   const raw = (location.hash || "#overview").replace(/^#/, "");
   const [head, id] = raw.split("/");
   if (head === "case" && id) return { name: "case", id };
-  if (["overview", "cases", "timesheet"].includes(head)) return { name: head, id: null };
+  if (["overview", "cases", "timesheet", "productivity"].includes(head)) return { name: head, id: null };
   return { name: "overview", id: null };
 }
 function navigate(route) { location.hash = route; }
@@ -451,6 +451,7 @@ function onRouteChange() {
     renderCaseDetail();
   }
   if (r.name === "timesheet") renderTimesheet();
+  if (r.name === "productivity") renderProductivity();
 }
 
 /* =================================================================
@@ -547,6 +548,135 @@ function computeKpiTrends() {
   setTrendChip(document.getElementById("trend-coded-today"), codedToday, codedYesterday, { unit: "", mode: "delta" });
   setTrendChip(document.getElementById("trend-hours-today"), hoursToday, hoursYesterday, { unit: "h", mode: "percent" });
   setTrendChip(document.getElementById("trend-hours-week"), hoursThisWeek, hoursPrevWeek, { unit: "h", mode: "percent" });
+}
+
+/* ---------- Productivity page ---------- */
+function renderProductivity() {
+  const today0 = startOfToday();
+  const weekStart = startOfWeek();
+  const monthAgo = new Date(today0); monthAgo.setDate(monthAgo.getDate() - 30);
+
+  const completed = state.cases.filter((c) => c.status === "complete" && c.completedAt);
+
+  const codedToday = completed.filter((c) => new Date(c.completedAt) >= today0).length;
+  const codedWeek = completed.filter((c) => new Date(c.completedAt) >= weekStart).length;
+  const codedMonth = completed.filter((c) => new Date(c.completedAt) >= monthAgo).length;
+  const hoursMonth = sumHours(state.timesheet.filter((e) => new Date(e.date) >= monthAgo));
+  const hoursPerCase = codedMonth > 0 ? hoursMonth / codedMonth : 0;
+  const casesPerHour = hoursMonth > 0 ? codedMonth / hoursMonth : 0;
+
+  document.getElementById("p-coded-today").textContent = codedToday;
+  document.getElementById("p-coded-week").textContent = codedWeek;
+  document.getElementById("p-hours-per-case").textContent = hoursPerCase.toFixed(2);
+  document.getElementById("p-cases-per-hour").textContent = casesPerHour.toFixed(2);
+
+  const days = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today0); d.setDate(d.getDate() - i);
+    const key = ymd(d);
+    const count = completed.filter((c) => ymd(new Date(c.completedAt)) === key).length;
+    const hours = sumHours(state.timesheet.filter((e) => e.date === key));
+    days.push({ date: d, key, count, hours, isToday: i === 0 });
+  }
+  renderProdBars(days);
+  renderProdLine(days);
+
+  const byCoder = {};
+  for (const c of completed) {
+    if (new Date(c.completedAt) < monthAgo) continue;
+    const name = (c.assignee || "Unassigned").trim() || "Unassigned";
+    byCoder[name] = (byCoder[name] || 0) + 1;
+  }
+  const lb = document.getElementById("p-leaderboard");
+  const sorted = Object.entries(byCoder).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) {
+    lb.innerHTML = '<li><span class="lb-name" style="color:var(--text-subtle);font-style:italic;font-weight:500">No completed charts in the last 30 days.</span></li>';
+  } else {
+    lb.innerHTML = sorted.map(([name, n]) => `
+      <li>
+        <span class="lb-name">${escapeHtml(name)}</span>
+        <span class="lb-stat">${n} chart${n === 1 ? "" : "s"}</span>
+      </li>`).join("");
+  }
+}
+
+function renderProdBars(days) {
+  const wrap = document.getElementById("p-bars");
+  const totalEl = document.getElementById("p-bars-total");
+  if (!wrap) return;
+  const total = days.reduce((s, d) => s + d.count, 0);
+  if (totalEl) totalEl.textContent = String(total);
+  if (total === 0) { wrap.innerHTML = '<div class="chart-empty">No charts coded in the last 14 days.</div>'; return; }
+
+  const W = 760, H = 220, padL = 24, padR = 16, padT = 18, padB = 32;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.count), 1);
+  const slot = plotW / days.length;
+  const barW = Math.min(34, slot - 8);
+  const grid = [0.25, 0.5, 0.75, 1].map((t) => {
+    const y = padT + plotH * (1 - t);
+    return `<line class="bar-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  const bars = days.map((d, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const h = (d.count / max) * plotH;
+    const y = padT + plotH - h;
+    const cls = d.isToday ? "bar-rect today" : "bar-rect";
+    const lbl = d.count > 0 ? `<text class="bar-label-v" x="${cx.toFixed(1)}" y="${(y - 6).toFixed(1)}">${d.count}</text>` : "";
+    const dow = d.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3).toUpperCase();
+    const dom = d.date.getDate();
+    const xLbl = `<text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 16}">${dow}</text>
+                  <text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 4}">${dom}</text>`;
+    return `<rect class="${cls}" x="${(cx - barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${Math.max(2, h).toFixed(1)}" rx="3"/>${lbl}${xLbl}`;
+  }).join("");
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#a855f7"/><stop offset="100%" stop-color="#6d28d9"/>
+        </linearGradient>
+        <linearGradient id="barGradientToday" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#d8b4fe"/><stop offset="100%" stop-color="#7c3aed"/>
+        </linearGradient>
+      </defs>
+      ${grid}${bars}
+    </svg>`;
+}
+
+function renderProdLine(days) {
+  const wrap = document.getElementById("p-line");
+  const totalEl = document.getElementById("p-hours-total");
+  if (!wrap) return;
+  const total = days.reduce((s, d) => s + d.hours, 0);
+  if (totalEl) totalEl.textContent = `${total.toFixed(2)}h`;
+  if (total === 0) { wrap.innerHTML = '<div class="chart-empty">No hours logged in the last 14 days.</div>'; return; }
+
+  const W = 760, H = 200, padL = 24, padR = 16, padT = 16, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.hours), 1);
+  const step = plotW / (days.length - 1);
+  const points = days.map((d, i) => ({ ...d, x: padL + i * step, y: padT + plotH - (d.hours / max) * plotH }));
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L ${points[points.length-1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${points[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+  const grid = [0.25, 0.5, 0.75].map((t) => {
+    const y = padT + plotH * t;
+    return `<line class="chart-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  const dots = points.map((p) => `<circle class="chart-dot${p.isToday ? ' today' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isToday ? 5 : 3}"/>`).join("");
+  const labels = points.map((p) => {
+    const dow = p.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1).toUpperCase();
+    return `<text class="chart-axis-label" x="${p.x.toFixed(1)}" y="${H - 8}">${dow}</text>`;
+  }).join("");
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#9333ea" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#9333ea" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${grid}<path class="chart-area" d="${areaPath}"/><path class="chart-line" d="${linePath}"/>${dots}${labels}
+    </svg>`;
 }
 
 /* ---------- Overview chart (last 7 days, inline SVG) ---------- */
