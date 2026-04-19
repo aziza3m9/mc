@@ -619,6 +619,8 @@ function renderProductivity() {
 
   renderHoursByCase(hoursByCaseMonth, entriesByCaseMonth);
 
+  renderHoursByCase(hoursByCaseMonth, entriesByCaseMonth);
+
   const days = [];
   for (let i = 13; i >= 0; i--) {
     const d = new Date(today0); d.setDate(d.getDate() - i);
