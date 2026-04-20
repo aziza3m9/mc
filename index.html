@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=32" />
+<link rel="stylesheet" href="styles.css?v=33" />
 </head>
 <body>
 
@@ -308,12 +308,29 @@
         <div class="doc-columns">
           <div>
             <h3>Operative Report</h3>
+            <div class="doc-link-row">
+              <input id="case-op-link" type="url" placeholder="Paste Google Doc / Drive link" autocomplete="off" />
+              <a id="case-op-open" class="btn sm" target="_blank" rel="noopener" hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Open
+              </a>
+            </div>
             <ul id="op-list" class="doc-list"></ul>
           </div>
           <div>
             <h3>H&amp;P Notes</h3>
+            <div class="doc-link-row">
+              <input id="case-hp-link" type="url" placeholder="Paste Google Doc / Drive link" autocomplete="off" />
+              <a id="case-hp-open" class="btn sm" target="_blank" rel="noopener" hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Open
+              </a>
+            </div>
             <ul id="hp-list" class="doc-list"></ul>
           </div>
+        </div>
+        <div class="doc-note">
+          <strong>Tip:</strong> Keep the patient-identifying document in Google Drive (covered by your BAA) and paste the share link here. Upload to this tool only for non-PHI reference files.
         </div>
       </section>
 
@@ -676,6 +693,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=32"></script>
+<script src="app.js?v=33"></script>
 </body>
 </html>
