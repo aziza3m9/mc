@@ -2038,7 +2038,9 @@ function bindEvents() {
    FIREBASE AUTH (email / password, @jcatmedia.com only)
 ================================================================= */
 function showLockScreen(mode) {
-  document.getElementById("lock-screen").hidden = false;
+  const ls = document.getElementById("lock-screen");
+  ls.hidden = false;
+  ls.classList.add("ready");
   document.querySelector(".app").style.display = "none";
   const login = document.getElementById("lock-login");
   const reset = document.getElementById("lock-reset");
