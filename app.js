@@ -626,11 +626,29 @@ function renderNavBadges() {
 
 function renderTopbar() {
   const dateEl = document.getElementById("topbar-date");
-  if (!dateEl) return;
-  const now = new Date();
-  dateEl.textContent = now.toLocaleDateString(undefined, {
-    weekday: "short", month: "short", day: "numeric", year: "numeric",
-  });
+  if (dateEl) {
+    const now = new Date();
+    dateEl.textContent = now.toLocaleDateString(undefined, {
+      weekday: "short", month: "short", day: "numeric", year: "numeric",
+    });
+  }
+
+  // Show the actual signed-in user, not a hardcoded "Clarence"
+  const nameEl = document.getElementById("topbar-user-name");
+  const avatarEl = document.getElementById("topbar-user-avatar");
+  const wrapEl = document.getElementById("topbar-user");
+  if (!currentUser) return;
+  const email = currentUser.email || "";
+  const local = email.split("@")[0] || "User";
+  const pretty = local
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+  const initials = (pretty.match(/\b[A-Za-z]/g) || ["U"]).slice(0, 2).join("").toUpperCase();
+  if (nameEl) nameEl.textContent = pretty;
+  if (avatarEl) avatarEl.textContent = initials;
+  if (wrapEl) wrapEl.title = `Signed in as ${email}`;
 }
 
 /* ---------- Trend chips ---------- */
@@ -2109,10 +2127,10 @@ auth.onAuthStateChanged(async (user) => {
     hideLockScreen();
     if (!appBooted) bootApp();
     else {
-      // User changed — re-subscribe with new UID
       unsubscribeFirestore();
       subscribeFirestore();
     }
+    renderTopbar();
   } else {
     unsubscribeFirestore();
     appBooted = false;
