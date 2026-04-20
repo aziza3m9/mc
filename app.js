@@ -214,6 +214,7 @@ function subscribeFirestore(onFirstReady) {
     applyLoadedData({});   // normalize / backfill in place
     firstWs = true;
     if (typeof render === "function") render();
+    maybeNotifyNewFeedback();
     tryReady();
   }, (e) => { console.warn("Workspace snapshot error", e); firstWs = true; tryReady(); });
 
@@ -783,6 +784,98 @@ function feedbackCountOthers() {
     const by = (f.createdBy || "").toLowerCase();
     return !by || by !== email;
   }).length;
+}
+
+/* =================================================================
+   TOAST NOTIFICATIONS
+   Lightweight slide-in notifier used when new feedback arrives from
+   another user, so it's impossible to miss.
+================================================================= */
+// Play a subtle two-tone chime — synthesized in the browser so we don't
+// need to ship an audio file. Modern browsers block audio until the user
+// has interacted with the page; until then, this silently no-ops.
+function playNotificationSound() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 0.18;
+    master.connect(ctx.destination);
+
+    const tones = [
+      { freq: 880,     start: 0.00, dur: 0.22 },   // A5
+      { freq: 1318.51, start: 0.11, dur: 0.30 },   // E6
+    ];
+    for (const t of tones) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = t.freq;
+      g.gain.setValueAtTime(0, now + t.start);
+      g.gain.linearRampToValueAtTime(1, now + t.start + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + t.start + t.dur);
+      osc.connect(g).connect(master);
+      osc.start(now + t.start);
+      osc.stop(now + t.start + t.dur + 0.05);
+    }
+    setTimeout(() => ctx.close(), 700);
+  } catch (_) { /* audio blocked or unavailable — fail silently */ }
+}
+
+function showToast({ title, text, duration = 6000, sound = true }) {
+  const stack = document.getElementById("toast-stack");
+  if (!stack) return;
+  const el = document.createElement("div");
+  el.className = "toast";
+  const initials = arguments[0].initials || "";
+  const iconInner = initials
+    ? escapeHtml(initials)
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+  el.innerHTML = `
+    <div class="toast-icon">${iconInner}</div>
+    <div class="toast-body">
+      <div class="toast-title">${escapeHtml(title || "")}</div>
+      <div class="toast-text">${escapeHtml(text || "")}</div>
+    </div>
+    <button class="toast-close" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>`;
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("toast-visible"));
+  if (sound) playNotificationSound();
+  const dismiss = () => {
+    el.classList.remove("toast-visible");
+    setTimeout(() => el.remove(), 320);
+  };
+  el.querySelector(".toast-close").addEventListener("click", dismiss);
+  if (duration) setTimeout(dismiss, duration);
+}
+
+// Track the previous "others' feedback" count so we can detect when
+// a new entry arrives from someone else and fire a toast.
+let lastOthersCount = null;
+function maybeNotifyNewFeedback() {
+  const currentOthers = feedbackCountOthers();
+  const prev = lastOthersCount;
+  lastOthersCount = currentOthers;
+  if (prev == null) return;                 // first snapshot — don't toast initial load
+  if (currentOthers <= prev) return;        // nothing new from others
+  const newest = (state.feedback || [])[state.feedback.length - 1];
+  if (!newest) return;
+  const byEmail = (newest.createdBy || "").toLowerCase();
+  const meEmail = (currentUser && currentUser.email || "").toLowerCase();
+  if (byEmail && byEmail === meEmail) return;   // we added this
+  const byProfile = USER_PROFILES[byEmail];
+  const byLabel = byProfile ? byProfile.name : (byEmail.split("@")[0] || "Someone");
+  const byInitials = byProfile ? byProfile.initials : (byLabel.match(/\b[A-Za-z]/g) || ["?"]).slice(0, 2).join("").toUpperCase();
+  showToast({
+    title: byLabel,
+    text: (newest.note || "(no note)").slice(0, 140),
+    duration: 8000,
+    initials: byInitials,
+  });
 }
 
 // Expose a tiny debug helper for verifying the notification pipeline from
