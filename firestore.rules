@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// MedCode CRM — Firestore security rules
+// - Any authenticated user with an @jcatmedia.com email can read/write the
+//   shared workspace (cases, timesheet, feedback).
+// - Each user can only read/write their own /users/{uid}/... prefs.
+// Non-PHI metadata only. Do NOT store patient-identifying content in Firestore;
+// that goes in Google Drive under the Google Workspace BAA.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isJcat() {
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email.matches('.*@jcatmedia[.]com$');
+    }
+
+    // Shared workspace — everyone in @jcatmedia.com can read/write
+    match /workspace/{wsId}/data/{doc=**} {
+      allow read, write: if isJcat();
+    }
+
+    // Per-user prefs (timer state, filter, calendar view)
+    match /users/{uid}/prefs/{doc=**} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid && isJcat();
+    }
+
+    // Deny everything else by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
