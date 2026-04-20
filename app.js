@@ -80,6 +80,8 @@ function load() {
       delete c.dxDocs;
     }
     if (!Array.isArray(c.opDocs)) c.opDocs = [];
+    if (typeof c.opLink !== "string") c.opLink = "";
+    if (typeof c.hpLink !== "string") c.hpLink = "";
   }
   if ("accounts" in state) delete state.accounts;
   if (!Array.isArray(state.feedback)) state.feedback = [];
@@ -109,6 +111,7 @@ function createCase() {
     createdAt: new Date().toISOString(),
     patient: { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" },
     opDocs: [], hpDocs: [], cpts: [],
+    opLink: "", hpLink: "",
     status: "coding",
     assignee: DEFAULT_USER,
     dueDate: "",
@@ -1235,9 +1238,28 @@ function renderCaseDetail() {
   if (accountEl) accountEl.value = c.account || "";
   refreshAccountSuggestions();
 
+  setDocLink("case-op-link", "case-op-open", c.opLink);
+  setDocLink("case-hp-link", "case-hp-open", c.hpLink);
   renderDocList("op-list", c.opDocs, "op");
   renderDocList("hp-list", c.hpDocs, "hp");
   renderCptTable(c);
+}
+
+function setDocLink(inputId, openId, url) {
+  const input = document.getElementById(inputId);
+  const btn = document.getElementById(openId);
+  if (input) input.value = url || "";
+  if (btn) {
+    const ok = isLikelyUrl(url);
+    btn.hidden = !ok;
+    if (ok) btn.href = url;
+  }
+}
+
+function isLikelyUrl(s) {
+  if (!s || typeof s !== "string") return false;
+  try { const u = new URL(s); return u.protocol === "http:" || u.protocol === "https:"; }
+  catch (_) { return false; }
 }
 
 function renderDocList(id, docs, kind) {
@@ -1582,6 +1604,22 @@ async function buildPdf() {
     doc.text(wrap, margin, y); y += wrap.length * 14;
   }
 
+  if (c.opLink || c.hpLink) {
+    y += 10;
+    doc.setFont("helvetica", "bold");
+    doc.text("Documents", margin, y);
+    y += 14;
+    doc.setFont("helvetica", "normal");
+    if (c.opLink) {
+      const wrap = doc.splitTextToSize(`Operative Report: ${c.opLink}`, pageW - margin * 2);
+      doc.text(wrap, margin, y); y += wrap.length * 14;
+    }
+    if (c.hpLink) {
+      const wrap = doc.splitTextToSize(`H&P Notes: ${c.hpLink}`, pageW - margin * 2);
+      doc.text(wrap, margin, y); y += wrap.length * 14;
+    }
+  }
+
   if (c.cpts.length) {
     y += 10;
     doc.setFont("helvetica", "bold");
@@ -1779,6 +1817,27 @@ function bindEvents() {
   document.getElementById("upload-hp").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("hp", e.target.files); e.target.value = "";
   });
+
+  const opLinkEl = document.getElementById("case-op-link");
+  const hpLinkEl = document.getElementById("case-hp-link");
+  if (opLinkEl) {
+    opLinkEl.addEventListener("input", () => {
+      const c = getActive(); if (!c) return;
+      c.opLink = opLinkEl.value.trim();
+      save();
+      const btn = document.getElementById("case-op-open");
+      if (btn) { const ok = isLikelyUrl(c.opLink); btn.hidden = !ok; if (ok) btn.href = c.opLink; }
+    });
+  }
+  if (hpLinkEl) {
+    hpLinkEl.addEventListener("input", () => {
+      const c = getActive(); if (!c) return;
+      c.hpLink = hpLinkEl.value.trim();
+      save();
+      const btn = document.getElementById("case-hp-open");
+      if (btn) { const ok = isLikelyUrl(c.hpLink); btn.hidden = !ok; if (ok) btn.href = c.hpLink; }
+    });
+  }
 
   document.getElementById("add-cpt-btn").addEventListener("click", addCpt);
   document.getElementById("delete-case-btn").addEventListener("click", () => {
