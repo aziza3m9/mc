@@ -158,7 +158,7 @@ function save() {
       caseStatusFilter: state.caseStatusFilter || "coding",
       calendarMonth: state.calendarMonth || null,
       activeTimer: state.activeTimer || null,
-      feedbackSeenAt: state.feedbackSeenAt || null,
+      feedbackSeenCount: Number(state.feedbackSeenCount) || 0,
     }, { merge: true })
       .then(() => { prefsPending = false; updateSyncIndicator(); })
       .catch((e) => {
@@ -227,7 +227,7 @@ function subscribeFirestore(onFirstReady) {
         state.caseStatusFilter = d.caseStatusFilter || "coding";
         state.calendarMonth = d.calendarMonth || null;
         state.activeTimer = d.activeTimer || null;
-        state.feedbackSeenAt = d.feedbackSeenAt || null;
+        state.feedbackSeenCount = Number(d.feedbackSeenCount) || 0;
       }
       firstPrefs = true;
       if (typeof render === "function") render();
@@ -756,19 +756,15 @@ function renderNavBadges() {
   const dot = document.getElementById("nav-timer-dot");
   if (dot) dot.hidden = !state.activeTimer;
 
-  // Feedback notification badge: count entries not authored by the current
-  // user that arrived after their last visit to the Feedback page.
+  // Feedback notification badge — count-based (simple, reliable).
+  // Shows how many OTHER users' feedback entries arrived since the
+  // current user last visited the Feedback page. No timestamp math,
+  // so it works regardless of clock skew or missing createdAt.
   const fbBadge = document.getElementById("nav-feedback-badge");
   if (fbBadge) {
-    const email = (currentUser && currentUser.email || "").toLowerCase();
-    const seen = state.feedbackSeenAt ? new Date(state.feedbackSeenAt) : null;
-    const unseen = (state.feedback || []).filter((f) => {
-      if (!f.createdAt) return false;
-      const by = (f.createdBy || "").toLowerCase();
-      if (by && by === email) return false;  // ignore own
-      if (!seen) return true;
-      return new Date(f.createdAt) > seen;
-    }).length;
+    const total = feedbackCountOthers();
+    const seen = Number(state.feedbackSeenCount) || 0;
+    const unseen = Math.max(0, total - seen);
     if (unseen > 0) {
       fbBadge.textContent = unseen > 99 ? "99+" : String(unseen);
       fbBadge.hidden = false;
@@ -778,14 +774,27 @@ function renderNavBadges() {
   }
 }
 
+// Count feedback entries NOT authored by the current user. Treats
+// entries with no createdBy (legacy items) as "other", so the badge
+// still works for data entered before createdBy was added.
+function feedbackCountOthers() {
+  const email = (currentUser && currentUser.email || "").toLowerCase();
+  return (state.feedback || []).filter((f) => {
+    const by = (f.createdBy || "").toLowerCase();
+    return !by || by !== email;
+  }).length;
+}
+
 // Expose a tiny debug helper for verifying the notification pipeline from
 // the browser console: `mcDebugFeedback()` logs the relevant fields so we
 // can see why the badge may or may not be showing.
 window.mcDebugFeedback = function () {
   const email = (currentUser && currentUser.email) || "(none)";
   console.log("currentUser:", email);
-  console.log("feedbackSeenAt:", state.feedbackSeenAt || "(never)");
-  console.log("feedback count:", (state.feedback || []).length);
+  console.log("total feedback:", (state.feedback || []).length);
+  console.log("others' feedback (badge numerator):", feedbackCountOthers());
+  console.log("feedbackSeenCount (badge denominator):", Number(state.feedbackSeenCount) || 0);
+  console.log("expected badge:", Math.max(0, feedbackCountOthers() - (Number(state.feedbackSeenCount) || 0)));
   (state.feedback || []).forEach((f, i) => {
     console.log(`  [${i}]`, { by: f.createdBy || "(blank)", at: f.createdAt, note: (f.note || "").slice(0, 40) });
   });
@@ -908,12 +917,11 @@ function computeKpiTrends() {
 
 /* ---------- Feedback page ---------- */
 function renderFeedback() {
-  // Mark feedback as seen up to now so the nav badge clears. Only persist
-  // if there's actually something new to mark — avoids a pointless write
-  // every time the page is re-rendered.
-  const nowIso = new Date().toISOString();
-  if (state.feedbackSeenAt !== nowIso) {
-    state.feedbackSeenAt = nowIso;
+  // Mark all current "other-user" feedback as seen. Only writes when the
+  // count actually changed so we don't spam Firestore on re-renders.
+  const currentCount = feedbackCountOthers();
+  if (Number(state.feedbackSeenCount) !== currentCount) {
+    state.feedbackSeenCount = currentCount;
     save();
     renderNavBadges();
   }
