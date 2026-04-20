@@ -7,7 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=33" />
+<link rel="stylesheet" href="styles.css?v=34" />
+
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -24,35 +29,37 @@
       </div>
     </div>
 
-    <div id="lock-setup" hidden>
-      <h2>Set a password</h2>
-      <p class="lock-sub">First-time setup. Clarence will enter this password to access the dashboard.</p>
-      <form id="lock-setup-form" autocomplete="off">
-        <label>New password
-          <input id="lock-new-pw" type="password" autocomplete="new-password" required minlength="4" />
+    <div id="lock-login">
+      <h2>Sign in</h2>
+      <p class="lock-sub">Use your company email and password.</p>
+      <form id="lock-login-form" autocomplete="on">
+        <label>Email
+          <input id="lock-email" type="email" autocomplete="username" required />
         </label>
-        <label>Confirm password
-          <input id="lock-new-pw2" type="password" autocomplete="new-password" required minlength="4" />
-        </label>
-        <div class="lock-error" id="lock-setup-error" hidden></div>
-        <button type="submit" class="btn primary lg">Create password</button>
-      </form>
-    </div>
-
-    <div id="lock-login" hidden>
-      <h2>Welcome back</h2>
-      <p class="lock-sub">Enter your password to continue.</p>
-      <form id="lock-login-form" autocomplete="off">
         <label>Password
           <input id="lock-pw" type="password" autocomplete="current-password" required />
         </label>
         <div class="lock-error" id="lock-login-error" hidden></div>
-        <button type="submit" class="btn primary lg">Unlock</button>
-        <button type="button" id="lock-reset-btn" class="btn ghost sm">Forgot password — reset app</button>
+        <button type="submit" class="btn primary lg" id="lock-signin-btn">Sign in</button>
+        <button type="button" id="lock-reset-btn" class="btn ghost sm">Forgot password</button>
+      </form>
+    </div>
+
+    <div id="lock-reset" hidden>
+      <h2>Reset password</h2>
+      <p class="lock-sub">We'll email a reset link to the address below.</p>
+      <form id="lock-reset-form" autocomplete="off">
+        <label>Email
+          <input id="lock-reset-email" type="email" autocomplete="username" required />
+        </label>
+        <div class="lock-error" id="lock-reset-error" hidden></div>
+        <div class="lock-info" id="lock-reset-info" hidden></div>
+        <button type="submit" class="btn primary lg">Send reset email</button>
+        <button type="button" id="lock-back-btn" class="btn ghost sm">Back to sign in</button>
       </form>
     </div>
   </div>
-  <p class="lock-footnote">Client-side lock only. Not a substitute for server-side authentication.</p>
+  <p class="lock-footnote">Secured by Firebase Authentication · jcatmedia.com</p>
 </div>
 
 <div class="app">
@@ -693,6 +700,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=33"></script>
+<script src="app.js?v=34"></script>
 </body>
 </html>

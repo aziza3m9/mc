@@ -1,5 +1,29 @@
-const STORAGE_KEY = "mc_dashboard_v2";
+const STORAGE_KEY = "mc_dashboard_v2";       // legacy; used only for one-time migration
 const DEFAULT_USER = "Clarence";
+
+/* =================================================================
+   FIREBASE (Auth + Firestore)
+   - Shared data lives under /workspace/default/data
+   - Per-user state (timer, UI filters) lives under /users/{uid}/prefs
+   - Sign-in restricted to @jcatmedia.com via Firestore security rules.
+================================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyDzTwlIOAI3GfFJhVtLlesdw5BOKerB0no",
+  authDomain: "medicalcoding-39666.firebaseapp.com",
+  projectId: "medicalcoding-39666",
+  storageBucket: "medicalcoding-39666.firebasestorage.app",
+  messagingSenderId: "677805653967",
+  appId: "1:677805653967:web:a836d72d1f70821543dcba",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+db.enablePersistence({ synchronizeTabs: true }).catch(() => {});   // offline cache
+
+let currentUser = null;      // set by onAuthStateChanged
+let wsUnsub = null;          // onSnapshot unsubscribe for shared workspace
+let prefsUnsub = null;       // onSnapshot unsubscribe for per-user prefs
+let suppressNextLocalSave = false;  // set during remote-driven state updates
 
 const state = {
   cases: [],
@@ -30,38 +54,14 @@ let timerInterval = null;
 /* =================================================================
    STORAGE + MIGRATION
 ================================================================= */
-function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      Object.assign(state, parsed);
-    } else {
-      const legacy = localStorage.getItem("mc_dashboard_v1");
-      if (legacy) {
-        const old = JSON.parse(legacy);
-        state.cases = old.cases || [];
-        state.activeId = old.activeId || null;
-        state.timesheet = [];
-        for (const c of state.cases) {
-          if (Array.isArray(c.hours)) {
-            for (const h of c.hours) {
-              state.timesheet.push({
-                id: uid(), date: h.date, hours: Number(h.hours) || 0,
-                task: h.task || "", caseId: c.id,
-              });
-            }
-            delete c.hours;
-          }
-        }
-      }
-    }
-  } catch (e) { console.warn("Failed to load", e); }
+// Takes a raw data object (from Firestore or legacy localStorage) and
+// normalizes it onto `state`. Does all schema migrations.
+function applyLoadedData(raw) {
+  if (raw && typeof raw === "object") Object.assign(state, raw);
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
-  // Backfill new case fields on previously-stored data.
-  // One-time migration: convert any prior accountId refs (managed-list model)
-  // into free-text c.account using the saved account name, then drop the
-  // accounts list entirely.
+  if (!Array.isArray(state.cases)) state.cases = [];
+  if (!Array.isArray(state.feedback)) state.feedback = [];
+
   const legacyAccounts = Array.isArray(state.accounts) ? state.accounts : [];
   const legacyById = Object.fromEntries(legacyAccounts.map((a) => [a.id, a.name || ""]));
   for (const c of state.cases) {
@@ -72,8 +72,6 @@ function load() {
     if (typeof c.account !== "string") c.account = "";
     if (!c.account && c.accountId && legacyById[c.accountId]) c.account = legacyById[c.accountId];
     if ("accountId" in c) delete c.accountId;
-    // Rename dxDocs -> hpDocs (Diagnostics -> H&P Notes). Preserve any
-    // prior diagnostics uploads by merging them in.
     if (!Array.isArray(c.hpDocs)) c.hpDocs = [];
     if (Array.isArray(c.dxDocs)) {
       for (const d of c.dxDocs) c.hpDocs.push(d);
@@ -84,16 +82,125 @@ function load() {
     if (typeof c.hpLink !== "string") c.hpLink = "";
   }
   if ("accounts" in state) delete state.accounts;
-  if (!Array.isArray(state.feedback)) state.feedback = [];
   for (const e of state.timesheet) {
     if (typeof e.employee !== "string") e.employee = "";
   }
-  // Normalize filter: migrate old "all" value and any unknown value to "coding".
   const validFilters = ["assigned", "coding", "review", "complete"];
   if (!validFilters.includes(state.caseStatusFilter)) state.caseStatusFilter = "coding";
 }
 
-function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+// The shared workspace doc: cases, timesheet, feedback.
+function wsDocRef() { return db.doc("workspace/default/data/state"); }
+// Per-user preferences doc: timer, filter, calendar view.
+function prefsDocRef() { return currentUser ? db.doc(`users/${currentUser.uid}/prefs/state`) : null; }
+
+// Write the shared workspace, debounced to avoid write spam. Skipped if
+// the latest render was driven by an incoming snapshot.
+let saveSharedTimer = null;
+let savePrefsTimer = null;
+function save() {
+  if (suppressNextLocalSave) { suppressNextLocalSave = false; return; }
+  if (!currentUser) return;
+  clearTimeout(saveSharedTimer);
+  saveSharedTimer = setTimeout(() => {
+    const payload = {
+      cases: state.cases || [],
+      timesheet: state.timesheet || [],
+      feedback: state.feedback || [],
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser.email || currentUser.uid,
+    };
+    wsDocRef().set(payload, { merge: true }).catch((e) => console.warn("Workspace save failed", e));
+  }, 350);
+  clearTimeout(savePrefsTimer);
+  savePrefsTimer = setTimeout(() => {
+    const p = prefsDocRef();
+    if (!p) return;
+    p.set({
+      activeId: state.activeId || null,
+      caseSearch: state.caseSearch || "",
+      caseStatusFilter: state.caseStatusFilter || "coding",
+      calendarMonth: state.calendarMonth || null,
+      activeTimer: state.activeTimer || null,
+    }, { merge: true }).catch((e) => console.warn("Prefs save failed", e));
+  }, 350);
+}
+
+// One-time migration from legacy mc_dashboard_v2 localStorage into Firestore.
+// Only runs if Firestore has no shared data yet and the local blob exists.
+async function maybeMigrateLocalStorage() {
+  try {
+    const snap = await wsDocRef().get();
+    if (snap.exists) return false;    // shared workspace already seeded
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.cases)) return false;
+    await wsDocRef().set({
+      cases: parsed.cases || [],
+      timesheet: parsed.timesheet || [],
+      feedback: parsed.feedback || [],
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser ? currentUser.email : "migration",
+      migratedFromLocalStorage: true,
+    });
+    console.info("Migrated local data into Firestore");
+    return true;
+  } catch (e) {
+    console.warn("Migration check failed", e);
+    return false;
+  }
+}
+
+// Initial load: subscribe to both docs. The first snapshot populates
+// state and renders the app. Subsequent snapshots reflect remote edits
+// from other devices.
+function subscribeFirestore(onFirstReady) {
+  let firstWs = false;
+  let firstPrefs = false;
+  const tryReady = () => { if (firstWs && firstPrefs && onFirstReady) { const cb = onFirstReady; onFirstReady = null; cb(); } };
+
+  wsUnsub = wsDocRef().onSnapshot((snap) => {
+    suppressNextLocalSave = true;
+    if (snap.exists) {
+      const d = snap.data() || {};
+      state.cases = Array.isArray(d.cases) ? d.cases : [];
+      state.timesheet = Array.isArray(d.timesheet) ? d.timesheet : [];
+      state.feedback = Array.isArray(d.feedback) ? d.feedback : [];
+    }
+    applyLoadedData({});   // normalize / backfill in place
+    firstWs = true;
+    if (typeof render === "function") render();
+    tryReady();
+  }, (e) => { console.warn("Workspace snapshot error", e); firstWs = true; tryReady(); });
+
+  const p = prefsDocRef();
+  if (p) {
+    prefsUnsub = p.onSnapshot((snap) => {
+      suppressNextLocalSave = true;
+      if (snap.exists) {
+        const d = snap.data() || {};
+        state.activeId = d.activeId || null;
+        state.caseSearch = d.caseSearch || "";
+        state.caseStatusFilter = d.caseStatusFilter || "coding";
+        state.calendarMonth = d.calendarMonth || null;
+        state.activeTimer = d.activeTimer || null;
+      }
+      firstPrefs = true;
+      if (typeof render === "function") render();
+      if (state.activeTimer && !timerInterval) startTimerLoop();
+      else if (!state.activeTimer && timerInterval) stopTimerLoop();
+      tryReady();
+    }, (e) => { console.warn("Prefs snapshot error", e); firstPrefs = true; tryReady(); });
+  } else {
+    firstPrefs = true;
+  }
+}
+
+function unsubscribeFirestore() {
+  if (wsUnsub) { try { wsUnsub(); } catch (_) {} wsUnsub = null; }
+  if (prefsUnsub) { try { prefsUnsub(); } catch (_) {} prefsUnsub = null; }
+}
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
@@ -1894,65 +2001,26 @@ function bindEvents() {
    INIT
 ================================================================= */
 /* =================================================================
-   LOCK SCREEN (client-side password gate — not real authentication)
+   FIREBASE AUTH (email / password, @jcatmedia.com only)
 ================================================================= */
-const AUTH_KEY = "mc_auth_v1";        // { saltHex, hashHex }
-const SESSION_KEY = "mc_auth_session"; // sessionStorage token
-
-function authStored() {
-  try { return JSON.parse(localStorage.getItem(AUTH_KEY)); }
-  catch (_) { return null; }
-}
-
-async function sha256Hex(text) {
-  const buf = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function randomSaltHex() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function authSetPassword(pw) {
-  const saltHex = randomSaltHex();
-  const hashHex = await sha256Hex(saltHex + ":" + pw);
-  localStorage.setItem(AUTH_KEY, JSON.stringify({ saltHex, hashHex }));
-}
-
-async function authVerifyPassword(pw) {
-  const rec = authStored();
-  if (!rec) return false;
-  const hashHex = await sha256Hex(rec.saltHex + ":" + pw);
-  return hashHex === rec.hashHex;
-}
-
-function isUnlocked() { return sessionStorage.getItem(SESSION_KEY) === "1"; }
-function markUnlocked() { sessionStorage.setItem(SESSION_KEY, "1"); }
-function signOut() {
-  sessionStorage.removeItem(SESSION_KEY);
-  location.reload();
-}
-
-function showLockScreen() {
+function showLockScreen(mode) {
   document.getElementById("lock-screen").hidden = false;
   document.querySelector(".app").style.display = "none";
-  const rec = authStored();
-  document.getElementById("lock-setup").hidden = !!rec;
-  document.getElementById("lock-login").hidden = !rec;
+  const login = document.getElementById("lock-login");
+  const reset = document.getElementById("lock-reset");
+  if (login) login.hidden = mode === "reset";
+  if (reset) reset.hidden = mode !== "reset";
   setTimeout(() => {
-    const target = rec ? document.getElementById("lock-pw") : document.getElementById("lock-new-pw");
+    const target = mode === "reset"
+      ? document.getElementById("lock-reset-email")
+      : document.getElementById("lock-email");
     target?.focus();
   }, 60);
 }
-
 function hideLockScreen() {
   document.getElementById("lock-screen").hidden = true;
   document.querySelector(".app").style.display = "";
 }
-
 function showLockError(id, msg) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -1963,41 +2031,62 @@ function clearLockError(id) {
   const el = document.getElementById(id);
   if (el) el.hidden = true;
 }
+function friendlyAuthError(e) {
+  const code = (e && e.code) || "";
+  if (code === "auth/invalid-email") return "That doesn't look like a valid email address.";
+  if (code === "auth/user-not-found") return "No account found for that email. Ask your admin to create it in Firebase Auth.";
+  if (code === "auth/wrong-password" || code === "auth/invalid-credential") return "Incorrect email or password.";
+  if (code === "auth/too-many-requests") return "Too many attempts. Try again in a few minutes.";
+  if (code === "auth/network-request-failed") return "Network error. Check your connection.";
+  return (e && e.message) || "Sign-in failed. Please try again.";
+}
+
+function signOut() {
+  auth.signOut().catch(() => {});
+}
 
 function bindLockEvents() {
-  document.getElementById("lock-setup-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    clearLockError("lock-setup-error");
-    const pw1 = document.getElementById("lock-new-pw").value;
-    const pw2 = document.getElementById("lock-new-pw2").value;
-    if (pw1.length < 4) return showLockError("lock-setup-error", "Use at least 4 characters.");
-    if (pw1 !== pw2) return showLockError("lock-setup-error", "Passwords don't match.");
-    await authSetPassword(pw1);
-    markUnlocked();
-    hideLockScreen();
-    bootApp();
-  });
   document.getElementById("lock-login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     clearLockError("lock-login-error");
+    const email = document.getElementById("lock-email").value.trim();
     const pw = document.getElementById("lock-pw").value;
-    const ok = await authVerifyPassword(pw);
-    if (!ok) {
-      showLockError("lock-login-error", "Incorrect password.");
+    const btn = document.getElementById("lock-signin-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Signing in…"; }
+    try {
+      await auth.signInWithEmailAndPassword(email, pw);
+      // onAuthStateChanged handles the rest.
+    } catch (err) {
+      showLockError("lock-login-error", friendlyAuthError(err));
       document.getElementById("lock-pw").select();
-      return;
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Sign in"; }
     }
-    markUnlocked();
-    hideLockScreen();
-    bootApp();
   });
   document.getElementById("lock-reset-btn").addEventListener("click", () => {
-    const warn = "RESET THE APP?\n\nThis removes the password AND all locally-stored data (cases, timesheet, feedback). There is no recovery. Continue?";
-    if (!confirm(warn)) return;
-    try { localStorage.removeItem(AUTH_KEY); } catch (_) {}
-    try { localStorage.removeItem("mc_dashboard_v2"); } catch (_) {}
-    sessionStorage.clear();
-    location.reload();
+    const email = document.getElementById("lock-email").value.trim();
+    const resetEmailEl = document.getElementById("lock-reset-email");
+    if (resetEmailEl && email) resetEmailEl.value = email;
+    clearLockError("lock-reset-error");
+    document.getElementById("lock-reset-info").hidden = true;
+    showLockScreen("reset");
+  });
+  document.getElementById("lock-back-btn").addEventListener("click", () => {
+    showLockScreen("login");
+  });
+  document.getElementById("lock-reset-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearLockError("lock-reset-error");
+    document.getElementById("lock-reset-info").hidden = true;
+    const email = document.getElementById("lock-reset-email").value.trim();
+    try {
+      await auth.sendPasswordResetEmail(email);
+      const info = document.getElementById("lock-reset-info");
+      info.textContent = `Sent — check ${email} for the reset link.`;
+      info.hidden = false;
+    } catch (err) {
+      showLockError("lock-reset-error", friendlyAuthError(err));
+    }
   });
 }
 
@@ -2005,23 +2094,37 @@ let appBooted = false;
 function bootApp() {
   if (appBooted) return;
   appBooted = true;
-  load();
   bindEvents();
   renderTopbar();
-  render();
-  if (state.activeTimer) startTimerLoop();
+  subscribeFirestore(() => {
+    // Once initial data is loaded (or Firestore is empty), migrate any
+    // legacy localStorage blob in one shot.
+    maybeMigrateLocalStorage();
+  });
 }
+
+auth.onAuthStateChanged(async (user) => {
+  currentUser = user || null;
+  if (user) {
+    hideLockScreen();
+    if (!appBooted) bootApp();
+    else {
+      // User changed — re-subscribe with new UID
+      unsubscribeFirestore();
+      subscribeFirestore();
+    }
+  } else {
+    unsubscribeFirestore();
+    appBooted = false;
+    showLockScreen("login");
+  }
+});
 
 bindLockEvents();
-if (isUnlocked()) {
-  bootApp();
-} else {
-  showLockScreen();
-}
+// Default: hide the app until auth state resolves.
+document.querySelector(".app").style.display = "none";
+showLockScreen("login");
 
-// Defensive persistence: if the tab is hidden or closed while the timer is
-// running, flush `state` to localStorage. The timer itself is driven by the
-// absolute `startedAt` timestamp, so on reopen it picks up where it left off.
 function flushState() { try { save(); } catch (_) {} }
 window.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushState();
