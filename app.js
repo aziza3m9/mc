@@ -158,7 +158,7 @@ function save() {
       caseStatusFilter: state.caseStatusFilter || "coding",
       calendarMonth: state.calendarMonth || null,
       activeTimer: state.activeTimer || null,
-      feedbackSeenAt: state.feedbackSeenAt || null,
+      feedbackSeenCount: Number(state.feedbackSeenCount) || 0,
     }, { merge: true })
       .then(() => { prefsPending = false; updateSyncIndicator(); })
       .catch((e) => {
@@ -214,6 +214,7 @@ function subscribeFirestore(onFirstReady) {
     applyLoadedData({});   // normalize / backfill in place
     firstWs = true;
     if (typeof render === "function") render();
+    maybeNotifyNewFeedback();
     tryReady();
   }, (e) => { console.warn("Workspace snapshot error", e); firstWs = true; tryReady(); });
 
@@ -227,7 +228,7 @@ function subscribeFirestore(onFirstReady) {
         state.caseStatusFilter = d.caseStatusFilter || "coding";
         state.calendarMonth = d.calendarMonth || null;
         state.activeTimer = d.activeTimer || null;
-        state.feedbackSeenAt = d.feedbackSeenAt || null;
+        state.feedbackSeenCount = Number(d.feedbackSeenCount) || 0;
       }
       firstPrefs = true;
       if (typeof render === "function") render();
@@ -756,19 +757,15 @@ function renderNavBadges() {
   const dot = document.getElementById("nav-timer-dot");
   if (dot) dot.hidden = !state.activeTimer;
 
-  // Feedback notification badge: count entries not authored by the current
-  // user that arrived after their last visit to the Feedback page.
+  // Feedback notification badge — count-based (simple, reliable).
+  // Shows how many OTHER users' feedback entries arrived since the
+  // current user last visited the Feedback page. No timestamp math,
+  // so it works regardless of clock skew or missing createdAt.
   const fbBadge = document.getElementById("nav-feedback-badge");
   if (fbBadge) {
-    const email = (currentUser && currentUser.email || "").toLowerCase();
-    const seen = state.feedbackSeenAt ? new Date(state.feedbackSeenAt) : null;
-    const unseen = (state.feedback || []).filter((f) => {
-      if (!f.createdAt) return false;
-      const by = (f.createdBy || "").toLowerCase();
-      if (by && by === email) return false;  // ignore own
-      if (!seen) return true;
-      return new Date(f.createdAt) > seen;
-    }).length;
+    const total = feedbackCountOthers();
+    const seen = Number(state.feedbackSeenCount) || 0;
+    const unseen = Math.max(0, total - seen);
     if (unseen > 0) {
       fbBadge.textContent = unseen > 99 ? "99+" : String(unseen);
       fbBadge.hidden = false;
@@ -778,14 +775,119 @@ function renderNavBadges() {
   }
 }
 
+// Count feedback entries NOT authored by the current user. Treats
+// entries with no createdBy (legacy items) as "other", so the badge
+// still works for data entered before createdBy was added.
+function feedbackCountOthers() {
+  const email = (currentUser && currentUser.email || "").toLowerCase();
+  return (state.feedback || []).filter((f) => {
+    const by = (f.createdBy || "").toLowerCase();
+    return !by || by !== email;
+  }).length;
+}
+
+/* =================================================================
+   TOAST NOTIFICATIONS
+   Lightweight slide-in notifier used when new feedback arrives from
+   another user, so it's impossible to miss.
+================================================================= */
+// Play a subtle two-tone chime — synthesized in the browser so we don't
+// need to ship an audio file. Modern browsers block audio until the user
+// has interacted with the page; until then, this silently no-ops.
+function playNotificationSound() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 0.18;
+    master.connect(ctx.destination);
+
+    const tones = [
+      { freq: 880,     start: 0.00, dur: 0.22 },   // A5
+      { freq: 1318.51, start: 0.11, dur: 0.30 },   // E6
+    ];
+    for (const t of tones) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = t.freq;
+      g.gain.setValueAtTime(0, now + t.start);
+      g.gain.linearRampToValueAtTime(1, now + t.start + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + t.start + t.dur);
+      osc.connect(g).connect(master);
+      osc.start(now + t.start);
+      osc.stop(now + t.start + t.dur + 0.05);
+    }
+    setTimeout(() => ctx.close(), 700);
+  } catch (_) { /* audio blocked or unavailable — fail silently */ }
+}
+
+function showToast({ title, text, duration = 6000, sound = true }) {
+  const stack = document.getElementById("toast-stack");
+  if (!stack) return;
+  const el = document.createElement("div");
+  el.className = "toast";
+  const initials = arguments[0].initials || "";
+  const iconInner = initials
+    ? escapeHtml(initials)
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+  el.innerHTML = `
+    <div class="toast-icon">${iconInner}</div>
+    <div class="toast-body">
+      <div class="toast-title">${escapeHtml(title || "")}</div>
+      <div class="toast-text">${escapeHtml(text || "")}</div>
+    </div>
+    <button class="toast-close" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>`;
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("toast-visible"));
+  if (sound) playNotificationSound();
+  const dismiss = () => {
+    el.classList.remove("toast-visible");
+    setTimeout(() => el.remove(), 320);
+  };
+  el.querySelector(".toast-close").addEventListener("click", dismiss);
+  if (duration) setTimeout(dismiss, duration);
+}
+
+// Track the previous "others' feedback" count so we can detect when
+// a new entry arrives from someone else and fire a toast.
+let lastOthersCount = null;
+function maybeNotifyNewFeedback() {
+  const currentOthers = feedbackCountOthers();
+  const prev = lastOthersCount;
+  lastOthersCount = currentOthers;
+  if (prev == null) return;                 // first snapshot — don't toast initial load
+  if (currentOthers <= prev) return;        // nothing new from others
+  const newest = (state.feedback || [])[state.feedback.length - 1];
+  if (!newest) return;
+  const byEmail = (newest.createdBy || "").toLowerCase();
+  const meEmail = (currentUser && currentUser.email || "").toLowerCase();
+  if (byEmail && byEmail === meEmail) return;   // we added this
+  const byProfile = USER_PROFILES[byEmail];
+  const byLabel = byProfile ? byProfile.name : (byEmail.split("@")[0] || "Someone");
+  const byInitials = byProfile ? byProfile.initials : (byLabel.match(/\b[A-Za-z]/g) || ["?"]).slice(0, 2).join("").toUpperCase();
+  showToast({
+    title: byLabel,
+    text: (newest.note || "(no note)").slice(0, 140),
+    duration: 8000,
+    initials: byInitials,
+  });
+}
+
 // Expose a tiny debug helper for verifying the notification pipeline from
 // the browser console: `mcDebugFeedback()` logs the relevant fields so we
 // can see why the badge may or may not be showing.
 window.mcDebugFeedback = function () {
   const email = (currentUser && currentUser.email) || "(none)";
   console.log("currentUser:", email);
-  console.log("feedbackSeenAt:", state.feedbackSeenAt || "(never)");
-  console.log("feedback count:", (state.feedback || []).length);
+  console.log("total feedback:", (state.feedback || []).length);
+  console.log("others' feedback (badge numerator):", feedbackCountOthers());
+  console.log("feedbackSeenCount (badge denominator):", Number(state.feedbackSeenCount) || 0);
+  console.log("expected badge:", Math.max(0, feedbackCountOthers() - (Number(state.feedbackSeenCount) || 0)));
   (state.feedback || []).forEach((f, i) => {
     console.log(`  [${i}]`, { by: f.createdBy || "(blank)", at: f.createdAt, note: (f.note || "").slice(0, 40) });
   });
@@ -908,12 +1010,11 @@ function computeKpiTrends() {
 
 /* ---------- Feedback page ---------- */
 function renderFeedback() {
-  // Mark feedback as seen up to now so the nav badge clears. Only persist
-  // if there's actually something new to mark — avoids a pointless write
-  // every time the page is re-rendered.
-  const nowIso = new Date().toISOString();
-  if (state.feedbackSeenAt !== nowIso) {
-    state.feedbackSeenAt = nowIso;
+  // Mark all current "other-user" feedback as seen. Only writes when the
+  // count actually changed so we don't spam Firestore on re-renders.
+  const currentCount = feedbackCountOthers();
+  if (Number(state.feedbackSeenCount) !== currentCount) {
+    state.feedbackSeenCount = currentCount;
     save();
     renderNavBadges();
   }
