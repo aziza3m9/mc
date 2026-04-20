@@ -61,6 +61,13 @@ html, body { margin: 0; padding: 0; height: 100%; }
     linear-gradient(180deg, #2e1065 0%, #1e1b4b 100%);
 }
 .lock-screen[hidden] { display: none !important; }
+/* Until JS flags the screen as ready (auth state resolved), hide the card
+   and footnote — only the purple backdrop is visible, so there's no flash
+   of the logo or sign-in form on refresh. */
+.lock-screen:not(.ready) .lock-card,
+.lock-screen:not(.ready) .lock-footnote {
+  visibility: hidden;
+}
 .lock-card {
   width: min(420px, 100%);
   background: var(--surface);
