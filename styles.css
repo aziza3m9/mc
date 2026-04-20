@@ -265,8 +265,14 @@ a:hover { color: var(--gold-hover); }
   animation: pulse 1.8s ease-in-out infinite;
 }
 .nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 20px;
+  height: 18px;
   font-size: 10.5px;
-  padding: 1px 7px;
+  padding: 0 7px;
   border-radius: 999px;
   background: linear-gradient(135deg, #dc2626, #991b1b);
   color: #fff;
@@ -276,7 +282,7 @@ a:hover { color: var(--gold-hover); }
   box-shadow: 0 1px 3px rgba(153, 27, 27, 0.5);
   animation: pulse-badge 2s ease-in-out infinite;
 }
-.nav-badge[hidden] { display: none; }
+.nav-badge[hidden] { display: none !important; }
 @keyframes pulse-badge {
   0%, 100% { box-shadow: 0 1px 3px rgba(153, 27, 27, 0.5); }
   50%      { box-shadow: 0 1px 3px rgba(153, 27, 27, 0.5), 0 0 0 4px rgba(220, 38, 38, 0.18); }

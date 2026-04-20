@@ -625,11 +625,12 @@ function renderNavBadges() {
   // user that arrived after their last visit to the Feedback page.
   const fbBadge = document.getElementById("nav-feedback-badge");
   if (fbBadge) {
-    const email = (currentUser && currentUser.email) || "";
+    const email = (currentUser && currentUser.email || "").toLowerCase();
     const seen = state.feedbackSeenAt ? new Date(state.feedbackSeenAt) : null;
     const unseen = (state.feedback || []).filter((f) => {
       if (!f.createdAt) return false;
-      if (f.createdBy && f.createdBy === email) return false;  // ignore own
+      const by = (f.createdBy || "").toLowerCase();
+      if (by && by === email) return false;  // ignore own
       if (!seen) return true;
       return new Date(f.createdAt) > seen;
     }).length;
@@ -641,6 +642,19 @@ function renderNavBadges() {
     }
   }
 }
+
+// Expose a tiny debug helper for verifying the notification pipeline from
+// the browser console: `mcDebugFeedback()` logs the relevant fields so we
+// can see why the badge may or may not be showing.
+window.mcDebugFeedback = function () {
+  const email = (currentUser && currentUser.email) || "(none)";
+  console.log("currentUser:", email);
+  console.log("feedbackSeenAt:", state.feedbackSeenAt || "(never)");
+  console.log("feedback count:", (state.feedback || []).length);
+  (state.feedback || []).forEach((f, i) => {
+    console.log(`  [${i}]`, { by: f.createdBy || "(blank)", at: f.createdAt, note: (f.note || "").slice(0, 40) });
+  });
+};
 
 function renderTopbar() {
   const dateEl = document.getElementById("topbar-date");
