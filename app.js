@@ -120,6 +120,7 @@ function save() {
       caseStatusFilter: state.caseStatusFilter || "coding",
       calendarMonth: state.calendarMonth || null,
       activeTimer: state.activeTimer || null,
+      feedbackSeenAt: state.feedbackSeenAt || null,
     }, { merge: true }).catch((e) => console.warn("Prefs save failed", e));
   }, 350);
 }
@@ -181,6 +182,7 @@ function subscribeFirestore(onFirstReady) {
         state.caseStatusFilter = d.caseStatusFilter || "coding";
         state.calendarMonth = d.calendarMonth || null;
         state.activeTimer = d.activeTimer || null;
+        state.feedbackSeenAt = d.feedbackSeenAt || null;
       }
       firstPrefs = true;
       if (typeof render === "function") render();
@@ -618,6 +620,26 @@ function renderNavBadges() {
   if (countEl) countEl.textContent = state.cases.length;
   const dot = document.getElementById("nav-timer-dot");
   if (dot) dot.hidden = !state.activeTimer;
+
+  // Feedback notification badge: count entries not authored by the current
+  // user that arrived after their last visit to the Feedback page.
+  const fbBadge = document.getElementById("nav-feedback-badge");
+  if (fbBadge) {
+    const email = (currentUser && currentUser.email) || "";
+    const seen = state.feedbackSeenAt ? new Date(state.feedbackSeenAt) : null;
+    const unseen = (state.feedback || []).filter((f) => {
+      if (!f.createdAt) return false;
+      if (f.createdBy && f.createdBy === email) return false;  // ignore own
+      if (!seen) return true;
+      return new Date(f.createdAt) > seen;
+    }).length;
+    if (unseen > 0) {
+      fbBadge.textContent = unseen > 99 ? "99+" : String(unseen);
+      fbBadge.hidden = false;
+    } else {
+      fbBadge.hidden = true;
+    }
+  }
 }
 
 function renderTopbar() {
@@ -737,6 +759,16 @@ function computeKpiTrends() {
 
 /* ---------- Feedback page ---------- */
 function renderFeedback() {
+  // Mark feedback as seen up to now so the nav badge clears. Only persist
+  // if there's actually something new to mark — avoids a pointless write
+  // every time the page is re-rendered.
+  const nowIso = new Date().toISOString();
+  if (state.feedbackSeenAt !== nowIso) {
+    state.feedbackSeenAt = nowIso;
+    save();
+    renderNavBadges();
+  }
+
   const today0 = startOfToday();
   const monthAgo = new Date(today0); monthAgo.setDate(monthAgo.getDate() - 30);
   const recent = state.feedback.filter((f) => new Date(f.createdAt) >= monthAgo);
@@ -894,6 +926,7 @@ function saveFeedbackFromModal() {
   state.feedback.push({
     id: uid(),
     createdAt: new Date().toISOString(),
+    createdBy: (currentUser && currentUser.email) || "",
     rating: FEEDBACK_RATINGS[rating] ? rating : "neutral",
     account, caseId, note,
   });
