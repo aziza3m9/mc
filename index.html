@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=45" />
+<link rel="stylesheet" href="styles.css?v=46" />
 
 <!-- Firebase SDK (compat) -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -112,6 +112,10 @@
         <input id="global-search" type="text" placeholder="Search cases, patients, MRN…" />
       </div>
       <div class="topbar-meta">
+        <div class="sync-status saved" id="sync-status" title="All changes saved">
+          <span class="sync-dot"></span>
+          <span class="sync-label" id="sync-status-label">Saved</span>
+        </div>
         <div class="topbar-date" id="topbar-date">—</div>
         <div class="topbar-user" id="topbar-user" title="Signed in">
           <span class="topbar-avatar" id="topbar-user-avatar">–</span>
@@ -701,6 +705,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=45"></script>
+<script src="app.js?v=46"></script>
 </body>
 </html>

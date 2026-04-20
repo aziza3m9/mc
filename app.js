@@ -23,6 +23,9 @@ db.enablePersistence({ synchronizeTabs: true }).catch(() => {});   // offline ca
 let currentUser = null;      // set by onAuthStateChanged
 let wsUnsub = null;          // onSnapshot unsubscribe for shared workspace
 let prefsUnsub = null;       // onSnapshot unsubscribe for per-user prefs
+let workspacePending = false;   // Firestore write queued / in flight
+let prefsPending = false;
+let lastSyncError = null;       // last error message from a failed write
 
 const state = {
   cases: [],
@@ -93,12 +96,39 @@ function wsDocRef() { return db.doc("workspace/default/data/state"); }
 // Per-user preferences doc: timer, filter, calendar view.
 function prefsDocRef() { return currentUser ? db.doc(`users/${currentUser.uid}/prefs/state`) : null; }
 
-// Write the shared workspace, debounced to avoid write spam. Skipped if
-// the latest render was driven by an incoming snapshot.
+// Updates the topbar pill based on pendingWrites + navigator.onLine.
+// Order of precedence: error > offline > saving > saved.
+function updateSyncIndicator() {
+  const el = document.getElementById("sync-status");
+  const label = document.getElementById("sync-status-label");
+  if (!el || !label) return;
+  let cls = "saved", text = "Saved", title = "All changes saved";
+  if (lastSyncError) {
+    cls = "error"; text = "Error"; title = "Last save failed: " + lastSyncError;
+  } else if (!navigator.onLine) {
+    cls = "offline"; text = "Offline";
+    const pending = (workspacePending ? 1 : 0) + (prefsPending ? 1 : 0);
+    title = pending > 0
+      ? "Offline — your changes will sync when connection returns"
+      : "Offline — nothing pending";
+  } else if (workspacePending || prefsPending) {
+    cls = "saving"; text = "Saving…"; title = "Saving your changes…";
+  }
+  el.className = "sync-status " + cls;
+  label.textContent = text;
+  el.title = title;
+}
+
+// Write the shared workspace, debounced to avoid write spam.
 let saveSharedTimer = null;
 let savePrefsTimer = null;
 function save() {
   if (!currentUser) return;
+  lastSyncError = null;
+  workspacePending = true;
+  prefsPending = true;
+  updateSyncIndicator();
+
   clearTimeout(saveSharedTimer);
   saveSharedTimer = setTimeout(() => {
     const payload = {
@@ -108,12 +138,20 @@ function save() {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedBy: currentUser.email || currentUser.uid,
     };
-    wsDocRef().set(payload, { merge: true }).catch((e) => console.warn("Workspace save failed", e));
+    wsDocRef().set(payload, { merge: true })
+      .then(() => { workspacePending = false; updateSyncIndicator(); })
+      .catch((e) => {
+        workspacePending = false;
+        lastSyncError = (e && e.message) || String(e);
+        console.warn("Workspace save failed", e);
+        updateSyncIndicator();
+      });
   }, 350);
+
   clearTimeout(savePrefsTimer);
   savePrefsTimer = setTimeout(() => {
     const p = prefsDocRef();
-    if (!p) return;
+    if (!p) { prefsPending = false; updateSyncIndicator(); return; }
     p.set({
       activeId: state.activeId || null,
       caseSearch: state.caseSearch || "",
@@ -121,7 +159,14 @@ function save() {
       calendarMonth: state.calendarMonth || null,
       activeTimer: state.activeTimer || null,
       feedbackSeenAt: state.feedbackSeenAt || null,
-    }, { merge: true }).catch((e) => console.warn("Prefs save failed", e));
+    }, { merge: true })
+      .then(() => { prefsPending = false; updateSyncIndicator(); })
+      .catch((e) => {
+        prefsPending = false;
+        lastSyncError = (e && e.message) || String(e);
+        console.warn("Prefs save failed", e);
+        updateSyncIndicator();
+      });
   }, 350);
 }
 
@@ -2226,3 +2271,6 @@ window.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", flushState);
 window.addEventListener("beforeunload", flushState);
+window.addEventListener("online",  updateSyncIndicator);
+window.addEventListener("offline", updateSyncIndicator);
+updateSyncIndicator();
