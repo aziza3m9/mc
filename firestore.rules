@@ -16,7 +16,6 @@ service cloud.firestore {
     function isJcat() {
       return isSignedIn()
         && request.auth.token.email != null
-        && request.auth.token.email_verified == true
         && request.auth.token.email.matches('.*@jcatmedia[.]com$');
     }
 
