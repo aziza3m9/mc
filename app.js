@@ -23,7 +23,6 @@ db.enablePersistence({ synchronizeTabs: true }).catch(() => {});   // offline ca
 let currentUser = null;      // set by onAuthStateChanged
 let wsUnsub = null;          // onSnapshot unsubscribe for shared workspace
 let prefsUnsub = null;       // onSnapshot unsubscribe for per-user prefs
-let suppressNextLocalSave = false;  // set during remote-driven state updates
 
 const state = {
   cases: [],
@@ -99,7 +98,6 @@ function prefsDocRef() { return currentUser ? db.doc(`users/${currentUser.uid}/p
 let saveSharedTimer = null;
 let savePrefsTimer = null;
 function save() {
-  if (suppressNextLocalSave) { suppressNextLocalSave = false; return; }
   if (!currentUser) return;
   clearTimeout(saveSharedTimer);
   saveSharedTimer = setTimeout(() => {
@@ -161,7 +159,6 @@ function subscribeFirestore(onFirstReady) {
   const tryReady = () => { if (firstWs && firstPrefs && onFirstReady) { const cb = onFirstReady; onFirstReady = null; cb(); } };
 
   wsUnsub = wsDocRef().onSnapshot((snap) => {
-    suppressNextLocalSave = true;
     if (snap.exists) {
       const d = snap.data() || {};
       state.cases = Array.isArray(d.cases) ? d.cases : [];
@@ -177,7 +174,6 @@ function subscribeFirestore(onFirstReady) {
   const p = prefsDocRef();
   if (p) {
     prefsUnsub = p.onSnapshot((snap) => {
-      suppressNextLocalSave = true;
       if (snap.exists) {
         const d = snap.data() || {};
         state.activeId = d.activeId || null;
