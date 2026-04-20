@@ -7,9 +7,54 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=19" />
+<link rel="stylesheet" href="styles.css?v=33" />
 </head>
 <body>
+
+<!-- =========================================================== -->
+<!-- LOCK SCREEN  (covers the app until the password is accepted) -->
+<!-- =========================================================== -->
+<div id="lock-screen" class="lock-screen" hidden>
+  <div class="lock-card">
+    <div class="lock-brand">
+      <div class="brand-mark">R<span style="font-size:0.7em;vertical-align:sub;">x</span></div>
+      <div>
+        <div class="brand-title">MedCode</div>
+        <div class="brand-sub">Private Ledger</div>
+      </div>
+    </div>
+
+    <div id="lock-setup" hidden>
+      <h2>Set a password</h2>
+      <p class="lock-sub">First-time setup. Clarence will enter this password to access the dashboard.</p>
+      <form id="lock-setup-form" autocomplete="off">
+        <label>New password
+          <input id="lock-new-pw" type="password" autocomplete="new-password" required minlength="4" />
+        </label>
+        <label>Confirm password
+          <input id="lock-new-pw2" type="password" autocomplete="new-password" required minlength="4" />
+        </label>
+        <div class="lock-error" id="lock-setup-error" hidden></div>
+        <button type="submit" class="btn primary lg">Create password</button>
+      </form>
+    </div>
+
+    <div id="lock-login" hidden>
+      <h2>Welcome back</h2>
+      <p class="lock-sub">Enter your password to continue.</p>
+      <form id="lock-login-form" autocomplete="off">
+        <label>Password
+          <input id="lock-pw" type="password" autocomplete="current-password" required />
+        </label>
+        <div class="lock-error" id="lock-login-error" hidden></div>
+        <button type="submit" class="btn primary lg">Unlock</button>
+        <button type="button" id="lock-reset-btn" class="btn ghost sm">Forgot password — reset app</button>
+      </form>
+    </div>
+  </div>
+  <p class="lock-footnote">Client-side lock only. Not a substitute for server-side authentication.</p>
+</div>
+
 <div class="app">
 
   <!-- Sidebar: persistent navigation -->
@@ -37,6 +82,14 @@
         <span>Timesheet</span>
         <span class="nav-dot" id="nav-timer-dot" hidden></span>
       </a>
+      <a class="nav-item" data-route="productivity" href="#productivity">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="12" width="3" height="6"/><rect x="11" y="8" width="3" height="10"/><rect x="16" y="4" width="3" height="14"/></svg>
+        <span>Productivity</span>
+      </a>
+      <a class="nav-item" data-route="feedback" href="#feedback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Feedback</span>
+      </a>
     </nav>
 
   </aside>
@@ -55,6 +108,9 @@
         <div class="topbar-user" title="Signed in as Clarence">
           <span class="topbar-avatar">CL</span>
           <span>Clarence</span>
+          <button id="topbar-signout" class="topbar-signout" title="Sign out" aria-label="Sign out">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
         </div>
       </div>
     </div>
@@ -70,12 +126,18 @@
         </div>
       </header>
 
-      <div class="kpi-grid kpi-grid-3">
+      <div class="kpi-grid">
         <div class="kpi">
           <div class="kpi-label">Total Cases</div>
           <div class="kpi-value" id="kpi-cases">0</div>
           <div class="kpi-trend flat" id="trend-cases">—</div>
           <span class="kpi-trend-note">New this week</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Charts Coded Today</div>
+          <div class="kpi-value" id="kpi-coded-today">0</div>
+          <div class="kpi-trend flat" id="trend-coded-today">—</div>
+          <span class="kpi-trend-note">vs. yesterday</span>
         </div>
         <div class="kpi">
           <div class="kpi-label">Hours Today</div>
@@ -184,16 +246,23 @@
       </header>
 
       <section class="card case-meta-card">
-        <div class="grid three">
+        <div class="grid two">
+          <label>Account
+            <input id="case-account" type="text" list="account-suggestions" placeholder="e.g. Mercy Hospital" autocomplete="off" />
+            <datalist id="account-suggestions"></datalist>
+          </label>
+          <label>Assigned to
+            <input id="case-assignee" type="text" placeholder="Employee name" />
+          </label>
+        </div>
+        <div class="grid two" style="margin-top: 14px;">
           <label>Status
             <select id="case-status">
+              <option value="assigned">Assigned</option>
               <option value="coding">Coding</option>
               <option value="review">In Review</option>
               <option value="complete">Complete</option>
             </select>
-          </label>
-          <label>Assigned to
-            <input id="case-assignee" type="text" placeholder="Employee name" />
           </label>
           <label>Due Date
             <input id="case-due-date" type="date" />
@@ -229,22 +298,39 @@
               Op Report
               <input id="upload-op" type="file" accept="image/*,application/pdf" multiple hidden />
             </label>
-            <label class="btn sm" for="upload-dx">
+            <label class="btn sm" for="upload-hp">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Diagnostics
-              <input id="upload-dx" type="file" accept="image/*,application/pdf" multiple hidden />
+              H&amp;P Notes
+              <input id="upload-hp" type="file" accept="image/*,application/pdf" multiple hidden />
             </label>
           </div>
         </div>
         <div class="doc-columns">
           <div>
             <h3>Operative Report</h3>
+            <div class="doc-link-row">
+              <input id="case-op-link" type="url" placeholder="Paste Google Doc / Drive link" autocomplete="off" />
+              <a id="case-op-open" class="btn sm" target="_blank" rel="noopener" hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Open
+              </a>
+            </div>
             <ul id="op-list" class="doc-list"></ul>
           </div>
           <div>
-            <h3>Diagnostics</h3>
-            <ul id="dx-list" class="doc-list"></ul>
+            <h3>H&amp;P Notes</h3>
+            <div class="doc-link-row">
+              <input id="case-hp-link" type="url" placeholder="Paste Google Doc / Drive link" autocomplete="off" />
+              <a id="case-hp-open" class="btn sm" target="_blank" rel="noopener" hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Open
+              </a>
+            </div>
+            <ul id="hp-list" class="doc-list"></ul>
           </div>
+        </div>
+        <div class="doc-note">
+          <strong>Tip:</strong> Keep the patient-identifying document in Google Drive (covered by your BAA) and paste the share link here. Upload to this tool only for non-PHI reference files.
         </div>
       </section>
 
@@ -379,7 +465,211 @@
       </section>
     </section>
 
+    <!-- =========================================================== -->
+    <!-- PRODUCTIVITY PAGE                                            -->
+    <!-- =========================================================== -->
+    <section id="page-productivity" class="page" hidden>
+      <header class="page-header">
+        <div>
+          <h1>Productivity</h1>
+          <p class="page-sub">Throughput, hours per case, and cases per hour</p>
+        </div>
+      </header>
+
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Coded Today</div>
+          <div class="kpi-value" id="p-coded-today">0</div>
+          <span class="kpi-trend-note">Charts marked complete today</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Cases Worked This Week</div>
+          <div class="kpi-value" id="p-worked-week">0</div>
+          <span class="kpi-trend-note">Unique cases with time logged</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Avg Hours / Case</div>
+          <div class="kpi-value" id="p-hours-per-case">—</div>
+          <span class="kpi-trend-note">Hours ÷ completed charts · 30d</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Cases / Hour</div>
+          <div class="kpi-value" id="p-cases-per-hour">—</div>
+          <span class="kpi-trend-note">Completed charts ÷ hours · 30d</span>
+        </div>
+      </div>
+
+      <section class="card chart-card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="12" width="3" height="6"/><rect x="11" y="8" width="3" height="10"/><rect x="16" y="4" width="3" height="14"/></svg>
+            Charts Coded · Last 14 Days
+          </h2>
+          <div class="chart-meta">
+            <span>Total</span>
+            <strong id="p-bars-total">0</strong>
+          </div>
+        </div>
+        <div class="bars-wrap" id="p-bars"></div>
+      </section>
+
+      <section class="card chart-card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg>
+            Hours Logged · Last 14 Days
+          </h2>
+          <div class="chart-meta">
+            <span>Total</span>
+            <strong id="p-hours-total">0.00h</strong>
+          </div>
+        </div>
+        <div class="chart-wrap" id="p-line"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Hours by Case · Last 30 Days
+          </h2>
+          <div class="chart-meta">
+            <span>Cases worked</span>
+            <strong id="p-cases-worked-30">0</strong>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="p-hours-by-case">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Account</th>
+                <th>Status</th>
+                <th style="width: 90px; text-align: right;">Entries</th>
+                <th style="width: 130px; text-align: right;">Hours</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Charts Coded by Coder · Last 30 Days
+          </h2>
+        </div>
+        <ul id="p-leaderboard" class="leaderboard"></ul>
+      </section>
+    </section>
+
+    <!-- =========================================================== -->
+    <!-- FEEDBACK PAGE                                                -->
+    <!-- =========================================================== -->
+    <section id="page-feedback" class="page" hidden>
+      <header class="page-header">
+        <div>
+          <h1>Feedback</h1>
+          <p class="page-sub">Quality notes — log feedback received from clients, reviewers, or yourself</p>
+        </div>
+        <div class="page-actions">
+          <button id="new-feedback-btn" class="btn gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Feedback
+          </button>
+        </div>
+      </header>
+
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Total · 30d</div>
+          <div class="kpi-value" id="fb-total">0</div>
+          <span class="kpi-trend-note">All ratings</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Good · 30d</div>
+          <div class="kpi-value" id="fb-good">0</div>
+          <span class="kpi-trend-note">Positive feedback</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Neutral · 30d</div>
+          <div class="kpi-value" id="fb-neutral">0</div>
+          <span class="kpi-trend-note">Routine</span>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Needs Work · 30d</div>
+          <div class="kpi-value" id="fb-needs">0</div>
+          <span class="kpi-trend-note">Action required</span>
+        </div>
+      </div>
+
+      <section class="card chart-card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="12" width="3" height="6"/><rect x="11" y="8" width="3" height="10"/><rect x="16" y="4" width="3" height="14"/></svg>
+            Feedback · Last 8 Weeks
+          </h2>
+          <div class="chart-meta">
+            <span>Total</span>
+            <strong id="fb-chart-total">0</strong>
+          </div>
+        </div>
+        <div class="bars-wrap" id="fb-chart"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            Feedback Log
+          </h2>
+        </div>
+        <ul id="fb-list" class="feedback-list"></ul>
+      </section>
+    </section>
+
   </main>
+</div>
+
+<!-- Add-feedback modal -->
+<div id="fb-modal" class="doc-viewer" hidden>
+  <div class="doc-viewer-backdrop" data-fb-close></div>
+  <div class="doc-viewer-panel" role="dialog" aria-modal="true" aria-labelledby="fb-modal-title" style="height:auto;max-height:90vh;width:min(560px,94vw);">
+    <header class="doc-viewer-head">
+      <div class="doc-viewer-title" id="fb-modal-title">New Feedback</div>
+      <div class="doc-viewer-actions">
+        <button class="btn icon ghost" data-fb-close aria-label="Close">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="doc-viewer-body" style="background:var(--surface);padding:22px;justify-content:flex-start;align-items:stretch;flex-direction:column;gap:14px;overflow:auto;">
+      <label>Rating
+        <select id="fb-rating">
+          <option value="good">Good</option>
+          <option value="neutral">Neutral</option>
+          <option value="needs">Needs Work</option>
+        </select>
+      </label>
+      <div class="grid two">
+        <label>Account
+          <input id="fb-account" type="text" list="account-suggestions" placeholder="e.g. Mercy Hospital" autocomplete="off" />
+        </label>
+        <label>Case
+          <select id="fb-case"><option value="">— None —</option></select>
+        </label>
+      </div>
+      <label>Note
+        <textarea id="fb-note" rows="4" placeholder="What was the feedback?"></textarea>
+      </label>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
+        <button class="btn ghost" data-fb-close>Cancel</button>
+        <button id="fb-save" class="btn primary">Save Feedback</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- In-site document viewer -->
@@ -403,6 +693,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=33"></script>
 </body>
 </html>

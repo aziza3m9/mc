@@ -9,12 +9,20 @@ const state = {
   caseSearch: "",
   caseStatusFilter: "coding", // coding | review | complete
   calendarMonth: null,        // "YYYY-MM" (null = current month)
+  feedback: [],               // [{id, createdAt, rating, account, caseId, note}]
 };
 
 const STATUS_META = {
+  assigned: { label: "Assigned",  tone: "violet"  },
   coding:   { label: "Coding",    tone: "amber"   },
   review:   { label: "In Review", tone: "emerald" },
   complete: { label: "Complete",  tone: "mute"    },
+};
+
+const FEEDBACK_RATINGS = {
+  good:    { label: "Good",       tone: "emerald" },
+  neutral: { label: "Neutral",    tone: "amber"   },
+  needs:   { label: "Needs Work", tone: "violet"  },
 };
 
 let timerInterval = null;
@@ -51,16 +59,37 @@ function load() {
   } catch (e) { console.warn("Failed to load", e); }
   if (!Array.isArray(state.timesheet)) state.timesheet = [];
   // Backfill new case fields on previously-stored data.
+  // One-time migration: convert any prior accountId refs (managed-list model)
+  // into free-text c.account using the saved account name, then drop the
+  // accounts list entirely.
+  const legacyAccounts = Array.isArray(state.accounts) ? state.accounts : [];
+  const legacyById = Object.fromEntries(legacyAccounts.map((a) => [a.id, a.name || ""]));
   for (const c of state.cases) {
     if (!c.status) c.status = "coding";
     if (typeof c.assignee !== "string") c.assignee = "";
     if (typeof c.dueDate !== "string") c.dueDate = "";
+    if (typeof c.completedAt !== "string") c.completedAt = "";
+    if (typeof c.account !== "string") c.account = "";
+    if (!c.account && c.accountId && legacyById[c.accountId]) c.account = legacyById[c.accountId];
+    if ("accountId" in c) delete c.accountId;
+    // Rename dxDocs -> hpDocs (Diagnostics -> H&P Notes). Preserve any
+    // prior diagnostics uploads by merging them in.
+    if (!Array.isArray(c.hpDocs)) c.hpDocs = [];
+    if (Array.isArray(c.dxDocs)) {
+      for (const d of c.dxDocs) c.hpDocs.push(d);
+      delete c.dxDocs;
+    }
+    if (!Array.isArray(c.opDocs)) c.opDocs = [];
+    if (typeof c.opLink !== "string") c.opLink = "";
+    if (typeof c.hpLink !== "string") c.hpLink = "";
   }
+  if ("accounts" in state) delete state.accounts;
+  if (!Array.isArray(state.feedback)) state.feedback = [];
   for (const e of state.timesheet) {
     if (typeof e.employee !== "string") e.employee = "";
   }
   // Normalize filter: migrate old "all" value and any unknown value to "coding".
-  const validFilters = ["coding", "review", "complete"];
+  const validFilters = ["assigned", "coding", "review", "complete"];
   if (!validFilters.includes(state.caseStatusFilter)) state.caseStatusFilter = "coding";
 }
 
@@ -81,10 +110,12 @@ function createCase() {
     id: uid(),
     createdAt: new Date().toISOString(),
     patient: { name: "", dob: "", mrn: "", dos: "", provider: "", facility: "", notes: "" },
-    opDocs: [], dxDocs: [], cpts: [],
+    opDocs: [], hpDocs: [], cpts: [],
+    opLink: "", hpLink: "",
     status: "coding",
     assignee: DEFAULT_USER,
     dueDate: "",
+    account: "",
   };
   state.cases.unshift(c);
   state.activeId = c.id;
@@ -104,6 +135,24 @@ function deleteCase(id) {
 function caseLabel(c) {
   if (!c) return "—";
   return c.patient.name || `Case ${c.id.slice(-4)}`;
+}
+
+/* =================================================================
+   ACCOUNTS (free-text + autocomplete from past values)
+================================================================= */
+function uniqueAccounts() {
+  const set = new Set();
+  for (const c of state.cases) {
+    const v = (c.account || "").trim();
+    if (v) set.add(v);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+function refreshAccountSuggestions() {
+  const dl = document.getElementById("account-suggestions");
+  if (!dl) return;
+  dl.innerHTML = uniqueAccounts().map((n) => `<option value="${escapeAttr(n)}"></option>`).join("");
 }
 
 /* =================================================================
@@ -159,7 +208,7 @@ async function imagesToPdfDataUrl(files) {
 async function addDocs(kind, fileList) {
   const c = getActive();
   if (!c) return;
-  const target = kind === "op" ? c.opDocs : c.dxDocs;
+  const target = kind === "op" ? c.opDocs : c.hpDocs;
   const files = Array.from(fileList);
 
   if (kind === "op") {
@@ -197,7 +246,7 @@ function removeDoc(kind, docId) {
   const c = getActive();
   if (!c) return;
   if (kind === "op") c.opDocs = c.opDocs.filter((d) => d.id !== docId);
-  else c.dxDocs = c.dxDocs.filter((d) => d.id !== docId);
+  else c.hpDocs = c.hpDocs.filter((d) => d.id !== docId);
   save();
   render();
 }
@@ -424,7 +473,7 @@ function parseRoute() {
   const raw = (location.hash || "#overview").replace(/^#/, "");
   const [head, id] = raw.split("/");
   if (head === "case" && id) return { name: "case", id };
-  if (["overview", "cases", "timesheet"].includes(head)) return { name: head, id: null };
+  if (["overview", "cases", "timesheet", "productivity", "feedback"].includes(head)) return { name: head, id: null };
   return { name: "overview", id: null };
 }
 function navigate(route) { location.hash = route; }
@@ -449,6 +498,8 @@ function onRouteChange() {
     renderCaseDetail();
   }
   if (r.name === "timesheet") renderTimesheet();
+  if (r.name === "productivity") renderProductivity();
+  if (r.name === "feedback") renderFeedback();
 }
 
 /* =================================================================
@@ -506,6 +557,20 @@ function setTrendChip(el, current, previous, { unit = "", mode = "percent" } = {
   el.innerHTML = `${icon}<span>${label}</span>`;
 }
 
+function casesCodedBetween(fromInclusive, toExclusive) {
+  return state.cases.filter((c) => {
+    if (c.status !== "complete" || !c.completedAt) return false;
+    const d = new Date(c.completedAt);
+    return d >= fromInclusive && d < toExclusive;
+  }).length;
+}
+function casesCodedSince(cutoff) {
+  return state.cases.filter((c) => {
+    if (c.status !== "complete" || !c.completedAt) return false;
+    return new Date(c.completedAt) >= cutoff;
+  }).length;
+}
+
 function computeKpiTrends() {
   const now = new Date();
   const today0 = startOfToday();
@@ -513,12 +578,14 @@ function computeKpiTrends() {
   const prevWeekStart = new Date(weekStart); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
   const yesterday = new Date(today0); yesterday.setDate(yesterday.getDate() - 1);
 
-  const weekAgo = new Date(today0); weekAgo.setDate(weekAgo.getDate() - 7);
   const casesAddedThisWeek = state.cases.filter((c) => new Date(c.createdAt) >= weekStart).length;
   const casesAddedPrevWeek = state.cases.filter((c) => {
     const d = new Date(c.createdAt);
     return d >= prevWeekStart && d < weekStart;
   }).length;
+
+  const codedToday = casesCodedSince(today0);
+  const codedYesterday = casesCodedBetween(yesterday, today0);
 
   const hoursToday = sumHours(filterEntriesSince(today0));
   const hoursYesterday = sumHours(filterEntriesBetween(yesterday, today0));
@@ -526,8 +593,369 @@ function computeKpiTrends() {
   const hoursPrevWeek = sumHours(filterEntriesBetween(prevWeekStart, weekStart));
 
   setTrendChip(document.getElementById("trend-cases"), casesAddedThisWeek, casesAddedPrevWeek, { unit: "", mode: "delta" });
+  setTrendChip(document.getElementById("trend-coded-today"), codedToday, codedYesterday, { unit: "", mode: "delta" });
   setTrendChip(document.getElementById("trend-hours-today"), hoursToday, hoursYesterday, { unit: "h", mode: "percent" });
   setTrendChip(document.getElementById("trend-hours-week"), hoursThisWeek, hoursPrevWeek, { unit: "h", mode: "percent" });
+}
+
+/* ---------- Feedback page ---------- */
+function renderFeedback() {
+  const today0 = startOfToday();
+  const monthAgo = new Date(today0); monthAgo.setDate(monthAgo.getDate() - 30);
+  const recent = state.feedback.filter((f) => new Date(f.createdAt) >= monthAgo);
+  const counts = { good: 0, neutral: 0, needs: 0 };
+  for (const f of recent) if (counts[f.rating] != null) counts[f.rating] += 1;
+
+  document.getElementById("fb-total").textContent = recent.length;
+  document.getElementById("fb-good").textContent = counts.good;
+  document.getElementById("fb-neutral").textContent = counts.neutral;
+  document.getElementById("fb-needs").textContent = counts.needs;
+
+  // 8-week stacked bar chart
+  const weeks = [];
+  for (let i = 7; i >= 0; i--) {
+    const ws = startOfWeek(); ws.setDate(ws.getDate() - i * 7);
+    const we = new Date(ws); we.setDate(we.getDate() + 7);
+    const inWeek = state.feedback.filter((f) => {
+      const d = new Date(f.createdAt);
+      return d >= ws && d < we;
+    });
+    weeks.push({
+      start: ws,
+      isCurrent: i === 0,
+      good: inWeek.filter((f) => f.rating === "good").length,
+      neutral: inWeek.filter((f) => f.rating === "neutral").length,
+      needs: inWeek.filter((f) => f.rating === "needs").length,
+    });
+  }
+  renderFeedbackChart(weeks);
+
+  // Log
+  const ul = document.getElementById("fb-list");
+  if (!state.feedback.length) {
+    ul.innerHTML = '<li class="feedback-empty">No feedback logged yet. Click <strong>Add Feedback</strong> to record the first one.</li>';
+    return;
+  }
+  const sorted = state.feedback.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  ul.innerHTML = sorted.map((f) => {
+    const meta = FEEDBACK_RATINGS[f.rating] || FEEDBACK_RATINGS.neutral;
+    const when = new Date(f.createdAt).toLocaleString(undefined, {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit",
+    });
+    const c = f.caseId ? state.cases.find((x) => x.id === f.caseId) : null;
+    const tags = [
+      `<span class="status-pill ${meta.tone}">${meta.label}</span>`,
+      f.account ? `<span class="fb-tag">${escapeHtml(f.account)}</span>` : "",
+      c ? `<a class="fb-tag fb-tag-link" href="#case/${c.id}">${escapeHtml(caseLabel(c))}</a>` : "",
+    ].filter(Boolean).join("");
+    return `
+      <li class="feedback-row" data-id="${f.id}">
+        <div class="feedback-head">
+          <div class="feedback-tags">${tags}</div>
+          <div class="feedback-actions">
+            <span class="feedback-when">${escapeHtml(when)}</span>
+            <button class="btn icon danger-ghost" title="Delete" data-fb-del="${f.id}">${trashIcon}</button>
+          </div>
+        </div>
+        <div class="feedback-note">${escapeHtml(f.note || "(no note)")}</div>
+      </li>`;
+  }).join("");
+  ul.querySelectorAll("[data-fb-del]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.fbDel;
+      if (!confirm("Delete this feedback entry?")) return;
+      state.feedback = state.feedback.filter((f) => f.id !== id);
+      save();
+      renderFeedback();
+    });
+  });
+}
+
+function renderFeedbackChart(weeks) {
+  const wrap = document.getElementById("fb-chart");
+  const totalEl = document.getElementById("fb-chart-total");
+  if (!wrap) return;
+  const total = weeks.reduce((s, w) => s + w.good + w.neutral + w.needs, 0);
+  if (totalEl) totalEl.textContent = String(total);
+  if (total === 0) {
+    wrap.innerHTML = '<div class="chart-empty">No feedback in the last 8 weeks.</div>';
+    return;
+  }
+
+  const W = 760, H = 220, padL = 24, padR = 16, padT = 18, padB = 36;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...weeks.map((w) => w.good + w.neutral + w.needs), 1);
+  const slot = plotW / weeks.length;
+  const barW = Math.min(38, slot - 10);
+  const grid = [0.25, 0.5, 0.75, 1].map((t) => {
+    const y = padT + plotH * (1 - t);
+    return `<line class="bar-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  // Stack: needs (bottom) + neutral + good (top), purple-friendly colors
+  const colors = { good: "#22c55e", neutral: "#a78bfa", needs: "#ef4444" };
+  const bars = weeks.map((w, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const stack = w.good + w.neutral + w.needs;
+    const totalH = (stack / max) * plotH;
+    let y = padT + plotH - totalH;
+    const segs = [];
+    for (const k of ["good", "neutral", "needs"]) {
+      if (w[k] === 0) continue;
+      const segH = (w[k] / stack) * totalH;
+      segs.push(`<rect x="${(cx - barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${Math.max(2, segH).toFixed(1)}" fill="${colors[k]}" opacity="${w.isCurrent ? 1 : 0.78}"/>`);
+      y += segH;
+    }
+    const lbl = stack > 0 ? `<text class="bar-label-v" x="${cx.toFixed(1)}" y="${(padT + plotH - totalH - 6).toFixed(1)}">${stack}</text>` : "";
+    const wkLabel = `Wk ${w.start.getMonth() + 1}/${w.start.getDate()}`;
+    const xLbl = `<text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 16}">${wkLabel.split(" ")[0]}</text>
+                  <text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 4}">${wkLabel.split(" ")[1]}</text>`;
+    return `${segs.join("")}${lbl}${xLbl}`;
+  }).join("");
+
+  const legend = `
+    <g transform="translate(${(padL + 4)}, ${padT - 6})" font-size="10" font-weight="700" letter-spacing="0.06em">
+      <rect x="0" y="-9" width="9" height="9" fill="${colors.good}"/><text x="13" y="-1" fill="${'var(--text-muted)'}">GOOD</text>
+      <rect x="58" y="-9" width="9" height="9" fill="${colors.neutral}"/><text x="71" y="-1" fill="${'var(--text-muted)'}">NEUTRAL</text>
+      <rect x="138" y="-9" width="9" height="9" fill="${colors.needs}"/><text x="151" y="-1" fill="${'var(--text-muted)'}">NEEDS WORK</text>
+    </g>`;
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${grid}
+      ${bars}
+      ${legend}
+    </svg>`;
+}
+
+function openFeedbackModal() {
+  const modal = document.getElementById("fb-modal");
+  if (!modal) return;
+  document.getElementById("fb-rating").value = "good";
+  document.getElementById("fb-account").value = "";
+  document.getElementById("fb-note").value = "";
+  refreshAccountSuggestions();
+  populateCaseSelect("fb-case");
+  modal.hidden = false;
+  setTimeout(() => document.getElementById("fb-note")?.focus(), 50);
+}
+
+function closeFeedbackModal() {
+  const modal = document.getElementById("fb-modal");
+  if (modal) modal.hidden = true;
+}
+
+function saveFeedbackFromModal() {
+  const rating = document.getElementById("fb-rating").value;
+  const account = document.getElementById("fb-account").value.trim();
+  const caseId = document.getElementById("fb-case").value;
+  const note = document.getElementById("fb-note").value.trim();
+  if (!note && !account && !caseId) {
+    alert("Add at least a note, account, or case before saving.");
+    return;
+  }
+  state.feedback.push({
+    id: uid(),
+    createdAt: new Date().toISOString(),
+    rating: FEEDBACK_RATINGS[rating] ? rating : "neutral",
+    account, caseId, note,
+  });
+  save();
+  closeFeedbackModal();
+  renderFeedback();
+}
+
+/* ---------- Productivity page ---------- */
+function renderProductivity() {
+  const today0 = startOfToday();
+  const weekStart = startOfWeek();
+  const monthAgo = new Date(today0); monthAgo.setDate(monthAgo.getDate() - 30);
+
+  const completed = state.cases.filter((c) => c.status === "complete" && c.completedAt);
+
+  const codedToday = completed.filter((c) => new Date(c.completedAt) >= today0).length;
+  const codedMonth = completed.filter((c) => new Date(c.completedAt) >= monthAgo).length;
+
+  // Time entries tie into productivity for the per-case breakdown, but the
+  // throughput ratios only make sense when the numerator is *finished*
+  // charts — otherwise a case with 22 seconds of logged time inflates
+  // Cases/Hour into the hundreds.
+  const monthEntries = state.timesheet.filter((e) => e.caseId && new Date(e.date) >= monthAgo);
+  const weekEntries = state.timesheet.filter((e) => e.caseId && new Date(e.date) >= weekStart);
+
+  const hoursByCaseMonth = {};
+  const entriesByCaseMonth = {};
+  for (const e of monthEntries) {
+    hoursByCaseMonth[e.caseId] = (hoursByCaseMonth[e.caseId] || 0) + (Number(e.hours) || 0);
+    entriesByCaseMonth[e.caseId] = (entriesByCaseMonth[e.caseId] || 0) + 1;
+  }
+  const hoursMonth = Object.values(hoursByCaseMonth).reduce((s, h) => s + h, 0);
+  const workedCasesWeek = new Set(weekEntries.map((e) => e.caseId)).size;
+
+  // Only compute throughput ratios once we have at least one completed
+  // chart and a non-trivial amount of time logged (15 min). Below that
+  // the numbers are noise — show a dash instead.
+  const haveSignal = codedMonth > 0 && hoursMonth >= 0.25;
+  const hoursPerCase = haveSignal ? hoursMonth / codedMonth : null;
+  const casesPerHour = haveSignal ? codedMonth / hoursMonth : null;
+
+  document.getElementById("p-coded-today").textContent = codedToday;
+  document.getElementById("p-worked-week").textContent = workedCasesWeek;
+  document.getElementById("p-hours-per-case").textContent = hoursPerCase == null ? "—" : hoursPerCase.toFixed(2);
+  document.getElementById("p-cases-per-hour").textContent = casesPerHour == null ? "—" : casesPerHour.toFixed(2);
+
+  renderHoursByCase(hoursByCaseMonth, entriesByCaseMonth);
+
+  renderHoursByCase(hoursByCaseMonth, entriesByCaseMonth);
+
+  const days = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today0); d.setDate(d.getDate() - i);
+    const key = ymd(d);
+    const count = completed.filter((c) => ymd(new Date(c.completedAt)) === key).length;
+    const hours = sumHours(state.timesheet.filter((e) => e.date === key));
+    days.push({ date: d, key, count, hours, isToday: i === 0 });
+  }
+  renderProdBars(days);
+  renderProdLine(days);
+
+  const byCoder = {};
+  for (const c of completed) {
+    if (new Date(c.completedAt) < monthAgo) continue;
+    const name = (c.assignee || "Unassigned").trim() || "Unassigned";
+    byCoder[name] = (byCoder[name] || 0) + 1;
+  }
+  const lb = document.getElementById("p-leaderboard");
+  const sorted = Object.entries(byCoder).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) {
+    lb.innerHTML = '<li><span class="lb-name" style="color:var(--text-subtle);font-style:italic;font-weight:500">No completed charts in the last 30 days.</span></li>';
+  } else {
+    lb.innerHTML = sorted.map(([name, n]) => `
+      <li>
+        <span class="lb-name">${escapeHtml(name)}</span>
+        <span class="lb-stat">${n} chart${n === 1 ? "" : "s"}</span>
+      </li>`).join("");
+  }
+}
+
+function renderHoursByCase(hoursByCase, entriesByCase) {
+  const tbody = document.querySelector("#p-hours-by-case tbody");
+  const countEl = document.getElementById("p-cases-worked-30");
+  if (!tbody) return;
+  const ids = Object.keys(hoursByCase);
+  if (countEl) countEl.textContent = String(ids.length);
+  if (!ids.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No cases with logged time in the last 30 days. Pick a case in the Timesheet clock so entries link to it.</td></tr>';
+    return;
+  }
+  const rows = ids
+    .map((id) => {
+      const c = state.cases.find((x) => x.id === id);
+      return {
+        id,
+        c,
+        hours: hoursByCase[id],
+        entries: entriesByCase[id] || 0,
+      };
+    })
+    .sort((a, b) => b.hours - a.hours);
+
+  tbody.innerHTML = rows.map((r) => {
+    const meta = r.c ? (STATUS_META[r.c.status] || STATUS_META.coding) : null;
+    const name = r.c ? caseLabel(r.c) : `Deleted case ${r.id.slice(-4)}`;
+    const account = r.c?.account || "—";
+    const status = meta
+      ? `<span class="status-pill ${meta.tone}">${meta.label}</span>`
+      : '<span class="status-pill mute">—</span>';
+    const link = r.c ? `<a href="#case/${r.c.id}">${escapeHtml(name)}</a>` : escapeHtml(name);
+    return `
+      <tr>
+        <td>${link}</td>
+        <td>${escapeHtml(account)}</td>
+        <td>${status}</td>
+        <td style="text-align: right; font-variant-numeric: tabular-nums;">${r.entries}</td>
+        <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--gold-hover);">${hoursToHMS(r.hours)}</td>
+      </tr>`;
+  }).join("");
+}
+
+function renderProdBars(days) {
+  const wrap = document.getElementById("p-bars");
+  const totalEl = document.getElementById("p-bars-total");
+  if (!wrap) return;
+  const total = days.reduce((s, d) => s + d.count, 0);
+  if (totalEl) totalEl.textContent = String(total);
+  if (total === 0) { wrap.innerHTML = '<div class="chart-empty">No charts coded in the last 14 days.</div>'; return; }
+
+  const W = 760, H = 220, padL = 24, padR = 16, padT = 18, padB = 32;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.count), 1);
+  const slot = plotW / days.length;
+  const barW = Math.min(34, slot - 8);
+  const grid = [0.25, 0.5, 0.75, 1].map((t) => {
+    const y = padT + plotH * (1 - t);
+    return `<line class="bar-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  const bars = days.map((d, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const h = (d.count / max) * plotH;
+    const y = padT + plotH - h;
+    const cls = d.isToday ? "bar-rect today" : "bar-rect";
+    const lbl = d.count > 0 ? `<text class="bar-label-v" x="${cx.toFixed(1)}" y="${(y - 6).toFixed(1)}">${d.count}</text>` : "";
+    const dow = d.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3).toUpperCase();
+    const dom = d.date.getDate();
+    const xLbl = `<text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 16}">${dow}</text>
+                  <text class="bar-label-x" x="${cx.toFixed(1)}" y="${H - 4}">${dom}</text>`;
+    return `<rect class="${cls}" x="${(cx - barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${Math.max(2, h).toFixed(1)}" rx="3"/>${lbl}${xLbl}`;
+  }).join("");
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#a855f7"/><stop offset="100%" stop-color="#6d28d9"/>
+        </linearGradient>
+        <linearGradient id="barGradientToday" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#d8b4fe"/><stop offset="100%" stop-color="#7c3aed"/>
+        </linearGradient>
+      </defs>
+      ${grid}${bars}
+    </svg>`;
+}
+
+function renderProdLine(days) {
+  const wrap = document.getElementById("p-line");
+  const totalEl = document.getElementById("p-hours-total");
+  if (!wrap) return;
+  const total = days.reduce((s, d) => s + d.hours, 0);
+  if (totalEl) totalEl.textContent = `${total.toFixed(2)}h`;
+  if (total === 0) { wrap.innerHTML = '<div class="chart-empty">No hours logged in the last 14 days.</div>'; return; }
+
+  const W = 760, H = 200, padL = 24, padR = 16, padT = 16, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...days.map((d) => d.hours), 1);
+  const step = plotW / (days.length - 1);
+  const points = days.map((d, i) => ({ ...d, x: padL + i * step, y: padT + plotH - (d.hours / max) * plotH }));
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L ${points[points.length-1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${points[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+  const grid = [0.25, 0.5, 0.75].map((t) => {
+    const y = padT + plotH * t;
+    return `<line class="chart-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+  }).join("");
+  const dots = points.map((p) => `<circle class="chart-dot${p.isToday ? ' today' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isToday ? 5 : 3}"/>`).join("");
+  const labels = points.map((p) => {
+    const dow = p.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1).toUpperCase();
+    return `<text class="chart-axis-label" x="${p.x.toFixed(1)}" y="${H - 8}">${dow}</text>`;
+  }).join("");
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#9333ea" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#9333ea" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${grid}<path class="chart-area" d="${areaPath}"/><path class="chart-line" d="${linePath}"/>${dots}${labels}
+    </svg>`;
 }
 
 /* ---------- Overview chart (last 7 days, inline SVG) ---------- */
@@ -630,6 +1058,7 @@ function renderDueToday() {
 
 function renderOverview() {
   document.getElementById("kpi-cases").textContent = state.cases.length;
+  document.getElementById("kpi-coded-today").textContent = casesCodedSince(startOfToday());
   document.getElementById("kpi-hours-today").textContent = hoursToHMS(sumHours(filterEntriesSince(startOfToday())) + runningHoursSince(startOfToday()));
   document.getElementById("kpi-hours-week").textContent = hoursToHMS(sumHours(filterEntriesSince(startOfWeek())) + runningHoursSince(startOfWeek()));
   computeKpiTrends();
@@ -681,13 +1110,15 @@ function renderStatusFilterTabs() {
   const tabs = document.getElementById("status-filter");
   if (!tabs) return;
   const counts = {
-    coding: state.cases.filter((c) => (c.status || "coding") === "coding").length,
-    review: state.cases.filter((c) => c.status === "review").length,
+    assigned: state.cases.filter((c) => c.status === "assigned").length,
+    coding:   state.cases.filter((c) => (c.status || "coding") === "coding").length,
+    review:   state.cases.filter((c) => c.status === "review").length,
     complete: state.cases.filter((c) => c.status === "complete").length,
   };
   const defs = [
-    { key: "coding", label: "Coding" },
-    { key: "review", label: "In Review" },
+    { key: "assigned", label: "Assigned" },
+    { key: "coding",   label: "Coding" },
+    { key: "review",   label: "In Review" },
     { key: "complete", label: "Complete" },
   ];
   tabs.innerHTML = "";
@@ -743,7 +1174,7 @@ function renderCasesIndex() {
     const meta = STATUS_META[status] || STATUS_META.coding;
     const name = caseLabel(c);
     const dos = c.patient.dos || new Date(c.createdAt).toISOString().slice(0, 10);
-    const info = [c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
+    const info = [c.account, c.patient.mrn && `MRN ${c.patient.mrn}`, c.patient.provider, c.patient.facility]
       .filter(Boolean)
       .join(" · ") || "No patient info yet";
     const assignee = c.assignee
@@ -770,7 +1201,7 @@ function renderCasesIndex() {
         </span>
         <span class="case-stat">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <strong>${c.opDocs.length + c.dxDocs.length}</strong> docs
+          <strong>${c.opDocs.length + c.hpDocs.length}</strong> docs
         </span>
       </div>`;
     grid.appendChild(card);
@@ -803,10 +1234,32 @@ function renderCaseDetail() {
   if (assigneeEl) assigneeEl.value = c.assignee || "";
   const dueEl = document.getElementById("case-due-date");
   if (dueEl) dueEl.value = c.dueDate || "";
+  const accountEl = document.getElementById("case-account");
+  if (accountEl) accountEl.value = c.account || "";
+  refreshAccountSuggestions();
 
+  setDocLink("case-op-link", "case-op-open", c.opLink);
+  setDocLink("case-hp-link", "case-hp-open", c.hpLink);
   renderDocList("op-list", c.opDocs, "op");
-  renderDocList("dx-list", c.dxDocs, "dx");
+  renderDocList("hp-list", c.hpDocs, "hp");
   renderCptTable(c);
+}
+
+function setDocLink(inputId, openId, url) {
+  const input = document.getElementById(inputId);
+  const btn = document.getElementById(openId);
+  if (input) input.value = url || "";
+  if (btn) {
+    const ok = isLikelyUrl(url);
+    btn.hidden = !ok;
+    if (ok) btn.href = url;
+  }
+}
+
+function isLikelyUrl(s) {
+  if (!s || typeof s !== "string") return false;
+  try { const u = new URL(s); return u.protocol === "http:" || u.protocol === "https:"; }
+  catch (_) { return false; }
 }
 
 function renderDocList(id, docs, kind) {
@@ -1069,6 +1522,7 @@ function populateCaseSelect(id) {
   sel.value = current || "";
 }
 
+
 function renderEntriesTable() {
   const tbody = document.querySelector("#entries-table tbody");
   tbody.innerHTML = "";
@@ -1150,6 +1604,22 @@ async function buildPdf() {
     doc.text(wrap, margin, y); y += wrap.length * 14;
   }
 
+  if (c.opLink || c.hpLink) {
+    y += 10;
+    doc.setFont("helvetica", "bold");
+    doc.text("Documents", margin, y);
+    y += 14;
+    doc.setFont("helvetica", "normal");
+    if (c.opLink) {
+      const wrap = doc.splitTextToSize(`Operative Report: ${c.opLink}`, pageW - margin * 2);
+      doc.text(wrap, margin, y); y += wrap.length * 14;
+    }
+    if (c.hpLink) {
+      const wrap = doc.splitTextToSize(`H&P Notes: ${c.hpLink}`, pageW - margin * 2);
+      doc.text(wrap, margin, y); y += wrap.length * 14;
+    }
+  }
+
   if (c.cpts.length) {
     y += 10;
     doc.setFont("helvetica", "bold");
@@ -1185,7 +1655,7 @@ async function buildPdf() {
 
   const allDocs = [
     ...c.opDocs.map((d) => ({ ...d, section: "Operative Report" })),
-    ...c.dxDocs.map((d) => ({ ...d, section: "Diagnostics" })),
+    ...c.hpDocs.map((d) => ({ ...d, section: "H&P Notes" })),
   ];
   for (const d of allDocs) {
     if (!d.type.startsWith("image/")) continue;
@@ -1239,6 +1709,12 @@ async function importAll(file) {
 function bindEvents() {
   window.addEventListener("hashchange", onRouteChange);
 
+  const signoutBtn = document.getElementById("topbar-signout");
+  if (signoutBtn) signoutBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (confirm("Sign out? You'll need the password to get back in.")) signOut();
+  });
+
   document.querySelectorAll(".nav-item").forEach((n) => {
     n.addEventListener("click", (e) => { /* default anchor behavior sets hash */ });
   });
@@ -1289,7 +1765,14 @@ function bindEvents() {
     statusSel.addEventListener("change", () => {
       const c = getActive();
       if (!c) return;
+      const prev = c.status;
       c.status = statusSel.value;
+      // Track when a case is marked complete; clear if it leaves complete.
+      if (c.status === "complete" && prev !== "complete") {
+        c.completedAt = new Date().toISOString();
+      } else if (c.status !== "complete") {
+        c.completedAt = "";
+      }
       save();
       const badge = document.getElementById("case-status-badge");
       if (badge) {
@@ -1317,13 +1800,44 @@ function bindEvents() {
       save();
     });
   }
+  const accountInput = document.getElementById("case-account");
+  if (accountInput) {
+    accountInput.addEventListener("input", () => {
+      const c = getActive();
+      if (!c) return;
+      c.account = accountInput.value;
+      save();
+    });
+    accountInput.addEventListener("change", refreshAccountSuggestions);
+  }
 
   document.getElementById("upload-op").addEventListener("change", (e) => {
     if (e.target.files.length) addDocs("op", e.target.files); e.target.value = "";
   });
-  document.getElementById("upload-dx").addEventListener("change", (e) => {
-    if (e.target.files.length) addDocs("dx", e.target.files); e.target.value = "";
+  document.getElementById("upload-hp").addEventListener("change", (e) => {
+    if (e.target.files.length) addDocs("hp", e.target.files); e.target.value = "";
   });
+
+  const opLinkEl = document.getElementById("case-op-link");
+  const hpLinkEl = document.getElementById("case-hp-link");
+  if (opLinkEl) {
+    opLinkEl.addEventListener("input", () => {
+      const c = getActive(); if (!c) return;
+      c.opLink = opLinkEl.value.trim();
+      save();
+      const btn = document.getElementById("case-op-open");
+      if (btn) { const ok = isLikelyUrl(c.opLink); btn.hidden = !ok; if (ok) btn.href = c.opLink; }
+    });
+  }
+  if (hpLinkEl) {
+    hpLinkEl.addEventListener("input", () => {
+      const c = getActive(); if (!c) return;
+      c.hpLink = hpLinkEl.value.trim();
+      save();
+      const btn = document.getElementById("case-hp-open");
+      if (btn) { const ok = isLikelyUrl(c.hpLink); btn.hidden = !ok; if (ok) btn.href = c.hpLink; }
+    });
+  }
 
   document.getElementById("add-cpt-btn").addEventListener("click", addCpt);
   document.getElementById("delete-case-btn").addEventListener("click", () => {
@@ -1345,6 +1859,17 @@ function bindEvents() {
     else clockIn();
   });
   document.getElementById("add-entry-btn").addEventListener("click", addManualEntry);
+
+  const newFbBtn = document.getElementById("new-feedback-btn");
+  if (newFbBtn) newFbBtn.addEventListener("click", openFeedbackModal);
+  const fbSave = document.getElementById("fb-save");
+  if (fbSave) fbSave.addEventListener("click", saveFeedbackFromModal);
+  document.querySelectorAll("#fb-modal [data-fb-close]").forEach((el) => {
+    el.addEventListener("click", closeFeedbackModal);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("fb-modal").hidden) closeFeedbackModal();
+  });
 
   const calPrev = document.getElementById("cal-prev");
   const calNext = document.getElementById("cal-next");
@@ -1368,11 +1893,131 @@ function bindEvents() {
 /* =================================================================
    INIT
 ================================================================= */
-load();
-bindEvents();
-renderTopbar();
-render();
-if (state.activeTimer) startTimerLoop();
+/* =================================================================
+   LOCK SCREEN (client-side password gate — not real authentication)
+================================================================= */
+const AUTH_KEY = "mc_auth_v1";        // { saltHex, hashHex }
+const SESSION_KEY = "mc_auth_session"; // sessionStorage token
+
+function authStored() {
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY)); }
+  catch (_) { return null; }
+}
+
+async function sha256Hex(text) {
+  const buf = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function randomSaltHex() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function authSetPassword(pw) {
+  const saltHex = randomSaltHex();
+  const hashHex = await sha256Hex(saltHex + ":" + pw);
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ saltHex, hashHex }));
+}
+
+async function authVerifyPassword(pw) {
+  const rec = authStored();
+  if (!rec) return false;
+  const hashHex = await sha256Hex(rec.saltHex + ":" + pw);
+  return hashHex === rec.hashHex;
+}
+
+function isUnlocked() { return sessionStorage.getItem(SESSION_KEY) === "1"; }
+function markUnlocked() { sessionStorage.setItem(SESSION_KEY, "1"); }
+function signOut() {
+  sessionStorage.removeItem(SESSION_KEY);
+  location.reload();
+}
+
+function showLockScreen() {
+  document.getElementById("lock-screen").hidden = false;
+  document.querySelector(".app").style.display = "none";
+  const rec = authStored();
+  document.getElementById("lock-setup").hidden = !!rec;
+  document.getElementById("lock-login").hidden = !rec;
+  setTimeout(() => {
+    const target = rec ? document.getElementById("lock-pw") : document.getElementById("lock-new-pw");
+    target?.focus();
+  }, 60);
+}
+
+function hideLockScreen() {
+  document.getElementById("lock-screen").hidden = true;
+  document.querySelector(".app").style.display = "";
+}
+
+function showLockError(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+}
+function clearLockError(id) {
+  const el = document.getElementById(id);
+  if (el) el.hidden = true;
+}
+
+function bindLockEvents() {
+  document.getElementById("lock-setup-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearLockError("lock-setup-error");
+    const pw1 = document.getElementById("lock-new-pw").value;
+    const pw2 = document.getElementById("lock-new-pw2").value;
+    if (pw1.length < 4) return showLockError("lock-setup-error", "Use at least 4 characters.");
+    if (pw1 !== pw2) return showLockError("lock-setup-error", "Passwords don't match.");
+    await authSetPassword(pw1);
+    markUnlocked();
+    hideLockScreen();
+    bootApp();
+  });
+  document.getElementById("lock-login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearLockError("lock-login-error");
+    const pw = document.getElementById("lock-pw").value;
+    const ok = await authVerifyPassword(pw);
+    if (!ok) {
+      showLockError("lock-login-error", "Incorrect password.");
+      document.getElementById("lock-pw").select();
+      return;
+    }
+    markUnlocked();
+    hideLockScreen();
+    bootApp();
+  });
+  document.getElementById("lock-reset-btn").addEventListener("click", () => {
+    const warn = "RESET THE APP?\n\nThis removes the password AND all locally-stored data (cases, timesheet, feedback). There is no recovery. Continue?";
+    if (!confirm(warn)) return;
+    try { localStorage.removeItem(AUTH_KEY); } catch (_) {}
+    try { localStorage.removeItem("mc_dashboard_v2"); } catch (_) {}
+    sessionStorage.clear();
+    location.reload();
+  });
+}
+
+let appBooted = false;
+function bootApp() {
+  if (appBooted) return;
+  appBooted = true;
+  load();
+  bindEvents();
+  renderTopbar();
+  render();
+  if (state.activeTimer) startTimerLoop();
+}
+
+bindLockEvents();
+if (isUnlocked()) {
+  bootApp();
+} else {
+  showLockScreen();
+}
 
 // Defensive persistence: if the tab is hidden or closed while the timer is
 // running, flush `state` to localStorage. The timer itself is driven by the
