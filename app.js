@@ -2142,6 +2142,7 @@ function bootApp() {
 auth.onAuthStateChanged(async (user) => {
   currentUser = user || null;
   if (user) {
+    try { localStorage.setItem(WAS_AUTHED_KEY, "1"); } catch (_) {}
     hideLockScreen();
     if (!appBooted) bootApp();
     else {
@@ -2150,6 +2151,7 @@ auth.onAuthStateChanged(async (user) => {
     }
     renderTopbar();
   } else {
+    try { localStorage.removeItem(WAS_AUTHED_KEY); } catch (_) {}
     unsubscribeFirestore();
     appBooted = false;
     showLockScreen("login");
@@ -2157,12 +2159,18 @@ auth.onAuthStateChanged(async (user) => {
 });
 
 bindLockEvents();
-// Keep both the app AND the lock screen hidden at load time.
-// onAuthStateChanged will reveal exactly one of them once Firebase
-// resolves the cached session. For signed-in users, the lock screen
-// is never shown at all — no dark-purple flash.
+// Optimistic boot path: if the user was signed in last time, keep the
+// lock screen hidden and wait for Firebase to confirm — no flash.
+// If they were NOT signed in (or first visit), show the lock screen
+// immediately so the UI isn't blank during the auth resolve.
+const WAS_AUTHED_KEY = "mc_was_authed";
+const wasAuthed = localStorage.getItem(WAS_AUTHED_KEY) === "1";
 document.querySelector(".app").style.display = "none";
-document.getElementById("lock-screen").hidden = true;
+if (wasAuthed) {
+  document.getElementById("lock-screen").hidden = true;
+} else {
+  showLockScreen("login");
+}
 
 function flushState() { try { save(); } catch (_) {} }
 window.addEventListener("visibilitychange", () => {
