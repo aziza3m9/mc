@@ -633,23 +633,39 @@ function renderTopbar() {
     });
   }
 
-  // Show the actual signed-in user, not a hardcoded "Clarence"
+  // Show the actual signed-in user. Known accounts get friendly role
+  // names; everyone else falls back to a title-cased email local-part.
   const nameEl = document.getElementById("topbar-user-name");
   const avatarEl = document.getElementById("topbar-user-avatar");
   const wrapEl = document.getElementById("topbar-user");
   if (!currentUser) return;
-  const email = currentUser.email || "";
-  const local = email.split("@")[0] || "User";
-  const pretty = local
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-  const initials = (pretty.match(/\b[A-Za-z]/g) || ["U"]).slice(0, 2).join("").toUpperCase();
-  if (nameEl) nameEl.textContent = pretty;
+  const email = (currentUser.email || "").toLowerCase();
+  const known = USER_PROFILES[email];
+  let name, initials;
+  if (known) {
+    name = known.name;
+    initials = known.initials;
+  } else {
+    const local = email.split("@")[0] || "User";
+    name = local
+      .split(/[._-]/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+    initials = (name.match(/\b[A-Za-z]/g) || ["U"]).slice(0, 2).join("").toUpperCase();
+  }
+  if (nameEl) nameEl.textContent = name;
   if (avatarEl) avatarEl.textContent = initials;
   if (wrapEl) wrapEl.title = `Signed in as ${email}`;
 }
+
+// Human-friendly role/name per account. Admin gets the "Admin" label,
+// Clarence keeps his name, anyone else (if added later) falls through
+// to the email-derived default.
+const USER_PROFILES = {
+  "support@jcatmedia.com":  { name: "Admin",    initials: "AD" },
+  "clarence@jcatmedia.com": { name: "Clarence", initials: "CL" },
+};
 
 /* ---------- Trend chips ---------- */
 const ARROW_UP   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>`;
