@@ -2155,12 +2155,16 @@ auth.onAuthStateChanged(async (user) => {
 });
 
 bindLockEvents();
-// Default: hide both the app AND the lock screen until Firebase resolves
-// the cached auth state. onAuthStateChanged fires exactly once on load
-// with either the cached user or null — then we reveal the right screen.
-// This avoids the "flash of sign-in" on refresh for already-signed-in users.
+// Keep the purple lock-screen backdrop visible during the brief moment
+// while Firebase resolves the cached session — but HIDE the sign-in
+// card and error chips inside it, so users don't see a flash of the
+// sign-in form if they're already signed in. onAuthStateChanged will
+// either reveal the app (signed in) or reveal the sign-in card
+// (signed out).
 document.querySelector(".app").style.display = "none";
-document.getElementById("lock-screen").hidden = true;
+document.getElementById("lock-screen").hidden = false;
+document.getElementById("lock-login").hidden = true;
+document.getElementById("lock-reset").hidden = true;
 
 function flushState() { try { save(); } catch (_) {} }
 window.addEventListener("visibilitychange", () => {
