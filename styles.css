@@ -294,10 +294,17 @@ a:hover { color: var(--gold-hover); }
 
 .sidebar-footer {
   padding-top: 14px;
+  margin-top: auto;
   border-top: 1px solid rgba(196, 181, 253, 0.2);
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.sidebar-footer .btn {
+  justify-content: flex-start;
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
 }
 .sidebar-footer .btn.ghost {
   color: #c4b5fd;
@@ -1599,6 +1606,37 @@ textarea { font-family: inherit; resize: vertical; }
 @keyframes sync-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.35; }
+}
+
+/* ===== Weekly backup reminder banner ===== */
+.backup-reminder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  margin: 16px 44px 0;
+  background: linear-gradient(180deg, #fef9c3 0%, #fef3c7 100%);
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  color: #78350f;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 2px 6px rgba(180, 83, 9, 0.12);
+}
+.backup-reminder[hidden] { display: none !important; }
+.backup-reminder-icon {
+  color: #b45309;
+  flex-shrink: 0;
+}
+.backup-reminder-text {
+  flex: 1;
+  line-height: 1.4;
+}
+.backup-reminder-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
 }
 .topbar-user {
   display: inline-flex;
