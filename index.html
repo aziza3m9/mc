@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=39" />
+<link rel="stylesheet" href="styles.css?v=40" />
 
 <!-- Firebase SDK (compat) -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -20,7 +20,7 @@
 <!-- LOCK SCREEN  (covers the app until the password is accepted) -->
 <!-- =========================================================== -->
 <div id="lock-screen" class="lock-screen" hidden>
-  <div class="lock-card">
+  <div class="lock-card" style="visibility: hidden;">
     <div class="lock-brand">
       <div class="brand-mark">R<span style="font-size:0.7em;vertical-align:sub;">x</span></div>
       <div>
@@ -59,7 +59,7 @@
       </form>
     </div>
   </div>
-  <p class="lock-footnote">Secured by Firebase Authentication · jcatmedia.com</p>
+  <p class="lock-footnote" style="visibility: hidden;">Secured by Firebase Authentication · jcatmedia.com</p>
 </div>
 
 <div class="app">
@@ -700,6 +700,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="app.js?v=39"></script>
+<script src="app.js?v=40"></script>
 </body>
 </html>
