@@ -244,6 +244,96 @@ function unsubscribeFirestore() {
   if (wsUnsub) { try { wsUnsub(); } catch (_) {} wsUnsub = null; }
   if (prefsUnsub) { try { prefsUnsub(); } catch (_) {} prefsUnsub = null; }
 }
+
+/* =================================================================
+   BACKUP / RESTORE
+   Downloads a timestamped JSON of the full workspace so users can
+   keep weekly backups in Google Drive. Import restores a backup
+   after a strong confirm.
+================================================================= */
+const LAST_BACKUP_KEY = "mc_last_backup_at";
+const BACKUP_INTERVAL_DAYS = 7;
+
+function lastBackupAt() {
+  const v = localStorage.getItem(LAST_BACKUP_KEY);
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(+d) ? null : d;
+}
+
+function daysSinceBackup() {
+  const d = lastBackupAt();
+  if (!d) return Infinity;
+  return (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+}
+
+function exportBackup() {
+  const payload = {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    exportedBy: (currentUser && currentUser.email) || "unknown",
+    workspace: {
+      cases: state.cases || [],
+      timesheet: state.timesheet || [],
+      feedback: state.feedback || [],
+    },
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `medcode-backup-${stamp}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch (_) {}
+  hideBackupReminder();
+}
+
+async function importBackup(file) {
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const ws = parsed && parsed.workspace;
+    if (!ws || !Array.isArray(ws.cases)) throw new Error("Backup file is missing workspace.cases");
+    const n = {
+      cases: ws.cases.length,
+      entries: Array.isArray(ws.timesheet) ? ws.timesheet.length : 0,
+      feedback: Array.isArray(ws.feedback) ? ws.feedback.length : 0,
+    };
+    const msg = `Restore backup?\n\nThis REPLACES all current cases, timesheet entries, and feedback with:\n  • ${n.cases} cases\n  • ${n.entries} time entries\n  • ${n.feedback} feedback entries\n\nExport date: ${parsed.exportedAt || "unknown"}\nExported by: ${parsed.exportedBy || "unknown"}\n\nContinue?`;
+    if (!confirm(msg)) return;
+    state.cases = ws.cases;
+    state.timesheet = Array.isArray(ws.timesheet) ? ws.timesheet : [];
+    state.feedback = Array.isArray(ws.feedback) ? ws.feedback : [];
+    applyLoadedData({});
+    save();
+    render();
+    alert("Backup restored.");
+  } catch (e) {
+    alert("Restore failed: " + (e && e.message || e));
+  }
+}
+
+function showBackupReminder() {
+  const el = document.getElementById("backup-reminder");
+  const textEl = document.getElementById("backup-reminder-text");
+  if (!el || !textEl) return;
+  const d = lastBackupAt();
+  const days = daysSinceBackup();
+  const lastStr = d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "never";
+  textEl.textContent = isFinite(days)
+    ? `It's been ${Math.floor(days)} days since your last backup (${lastStr}). Download one now to keep in Google Drive.`
+    : `You haven't backed up yet. Download one now to keep in Google Drive.`;
+  el.hidden = false;
+}
+function hideBackupReminder() {
+  const el = document.getElementById("backup-reminder");
+  if (el) el.hidden = true;
+}
+function maybeShowBackupReminder() {
+  if (daysSinceBackup() >= BACKUP_INTERVAL_DAYS) showBackupReminder();
+}
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
@@ -1944,6 +2034,26 @@ function bindEvents() {
     if (confirm("Sign out? You'll need the password to get back in.")) signOut();
   });
 
+  const exportBtn = document.getElementById("export-backup-btn");
+  if (exportBtn) exportBtn.addEventListener("click", exportBackup);
+  const importInput = document.getElementById("import-backup-input");
+  if (importInput) importInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) importBackup(e.target.files[0]);
+    e.target.value = "";
+  });
+  const reminderDownload = document.getElementById("backup-reminder-download");
+  if (reminderDownload) reminderDownload.addEventListener("click", exportBackup);
+  const reminderDismiss = document.getElementById("backup-reminder-dismiss");
+  if (reminderDismiss) reminderDismiss.addEventListener("click", () => {
+    hideBackupReminder();
+    // Suppress for a day by recording a fake "last backup" that's 1 day
+    // less than the threshold so the banner returns tomorrow if still
+    // not backed up.
+    const d = new Date();
+    d.setDate(d.getDate() - (BACKUP_INTERVAL_DAYS - 1));
+    try { localStorage.setItem(LAST_BACKUP_KEY, d.toISOString()); } catch (_) {}
+  });
+
   document.querySelectorAll(".nav-item").forEach((n) => {
     n.addEventListener("click", (e) => { /* default anchor behavior sets hash */ });
   });
@@ -2228,6 +2338,7 @@ function bootApp() {
     // Once initial data is loaded (or Firestore is empty), migrate any
     // legacy localStorage blob in one shot.
     maybeMigrateLocalStorage();
+    maybeShowBackupReminder();
   });
 }
 
