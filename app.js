@@ -2042,6 +2042,10 @@ function showLockScreen(mode) {
   ls.hidden = false;
   ls.classList.add("ready");
   document.querySelector(".app").style.display = "none";
+  // Reveal the card + footnote now that we know we're showing the sign-in UI.
+  document.querySelectorAll("#lock-screen .lock-card, .lock-footnote").forEach((el) => {
+    el.style.visibility = "";
+  });
   const login = document.getElementById("lock-login");
   const reset = document.getElementById("lock-reset");
   if (login) login.hidden = mode === "reset";
