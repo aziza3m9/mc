@@ -316,11 +316,13 @@
     padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
     background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
   }
-  .source-tag.linkedin   { color: #5aa9ef; border-color: rgba(90,169,239,.4); }
-  .source-tag.referral   { color: var(--green);  border-color: rgba(63,207,142,.4); }
-  .source-tag.company    { color: var(--accent); border-color: rgba(108,140,255,.4); }
-  .source-tag.recruiter  { color: var(--amber);  border-color: rgba(245,179,66,.4); }
-  .source-tag.other      { color: var(--muted); }
+  .source-tag.linkedin     { color: #5aa9ef; border-color: rgba(90,169,239,.4); }
+  .source-tag.indeed       { color: #2557a7; border-color: rgba(37,87,167,.5); }
+  .source-tag.ziprecruiter { color: #5fbf75; border-color: rgba(95,191,117,.4); }
+  .source-tag.referral     { color: var(--green);  border-color: rgba(63,207,142,.4); }
+  .source-tag.company      { color: var(--accent); border-color: rgba(108,140,255,.4); }
+  .source-tag.recruiter    { color: var(--amber);  border-color: rgba(245,179,66,.4); }
+  .source-tag.other        { color: var(--muted); }
 
   /* Goal indicator */
   .goal-chip {
@@ -565,6 +567,8 @@
             <select id="f-source">
               <option value="">— Pick a channel —</option>
               <option value="linkedin">LinkedIn</option>
+              <option value="indeed">Indeed</option>
+              <option value="ziprecruiter">ZipRecruiter</option>
               <option value="referral">Referral</option>
               <option value="company">Company site</option>
               <option value="recruiter">Recruiter</option>
@@ -832,6 +836,7 @@
         <div class="sync-actions" style="margin-top: 8px;">
           <button class="btn-ghost" id="bg-test-btn">Test connection</button>
           <button class="btn-primary" id="bg-fetch-btn">Fetch latest now</button>
+          <button class="btn-ghost" id="bg-reclassify-btn" title="Re-runs the classifier on every imported thread and fixes wrong company / missing title — without creating duplicates.">Re-classify existing rows</button>
         </div>
         <div class="sync-status" id="bg-status">Not configured.</div>
       </section>
@@ -879,13 +884,15 @@
 
   const STORAGE_KEY = 'application-dashboard-v1';
   const SOURCE_LABELS = {
-    linkedin:  'LinkedIn',
-    referral:  'Referral',
-    company:   'Company site',
-    recruiter: 'Recruiter',
-    other:     'Other'
+    linkedin:     'LinkedIn',
+    indeed:       'Indeed',
+    ziprecruiter: 'ZipRecruiter',
+    referral:     'Referral',
+    company:      'Company site',
+    recruiter:    'Recruiter',
+    other:        'Other'
   };
-  const SOURCE_KEYS = ['linkedin', 'referral', 'company', 'recruiter', 'other'];
+  const SOURCE_KEYS = ['linkedin', 'indeed', 'ziprecruiter', 'referral', 'company', 'recruiter', 'other'];
   const state = load();
   let activeFilter = 'all';
   const expanded = new Set();   // ids of rows currently expanded
@@ -1948,11 +1955,15 @@
     const isJobBoard = /(^|\.)(indeed\.com|ziprecruiter\.com|glassdoor\.com|monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain);
     const isPlatform = isLinkedIn || isAts || isJobBoard;
 
+    const isIndeed       = /(^|\.)indeed\.com$/.test(domain);
+    const isZipRecruiter = /(^|\.)ziprecruiter\.com$/.test(domain);
     let source = 'other';
-    if (isLinkedIn) source = 'linkedin';
-    else if (isAts) source = 'company';
-    else if (isJobBoard) source = 'other';
-    else if (domain) source = 'company';
+    if (isLinkedIn)          source = 'linkedin';
+    else if (isIndeed)       source = 'indeed';
+    else if (isZipRecruiter) source = 'ziprecruiter';
+    else if (isAts)          source = 'company';
+    else if (isJobBoard)     source = 'other';
+    else if (domain)         source = 'company';
     if (/(recruiter|talent partner|sourcer|^hire@|hiring@)/i.test(from) && source === 'other') source = 'recruiter';
 
     // ----- Display name (with platform-name stripping) -----
@@ -2030,6 +2041,18 @@
     }
     company = (company || '').replace(/\s+(team|careers|recruiting|hr|talent|hiring|inc|llc|ltd)\.?$/i, '').trim();
     company = company.replace(/[.,;:!?]+$/, '').replace(/\s+/g, ' ').trim();
+
+    // ----- Apps Script hints (server-side, full body access) -----
+    // Prefer hints from Apps Script when set — they had access to the
+    // full email body so they're more reliable than our header+snippet
+    // heuristics. The gapi path doesn't supply these.
+    const hints = msg._hints || {};
+    if (hints.companyHint && !PLATFORM_NAMES.test(hints.companyHint)) {
+      company = hints.companyHint;
+    }
+    if (hints.roleHint) {
+      role = hints.roleHint;
+    }
 
     // ----- Salary -----
     const sal = parseSalaryFromText(bodyForSalary);
@@ -2113,6 +2136,11 @@
 
   // Apply currently-selected Gmail results to local state.
   // `opts.silent` suppresses the status toast (used by auto-apply).
+  // Companies that older classifier versions saved by mistake — these
+  // should be overwritten when a better hint comes in from Apps Script.
+  const PLATFORM_COMPANY_RE = /^(indeed(\s+apply)?|linkedin|ziprecruiter|glassdoor|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smartrecruiters|icims|workday|jobvite|bamboohr|teamtailor|notifications|jobs|careers|no.?reply|the team|apply)$/i;
+  function isPlatformCompanyName(s) { return !!s && PLATFORM_COMPANY_RE.test(String(s).trim()); }
+
   function applySelectedGmailItems(opts) {
     opts = opts || {};
     if (!gmailSelected.size) return { added: 0, updated: 0 };
@@ -2129,10 +2157,15 @@
         }
         // Backfill missing fields without overwriting user edits.
         if (!existing.source && p.source) existing.source = p.source;
-        if (!existing.company && p.company) existing.company = p.company;
         if (!existing.role && p.role) existing.role = p.role;
         if (existing.salaryMin == null && p.salaryMin != null) existing.salaryMin = p.salaryMin;
         if (existing.salaryMax == null && p.salaryMax != null) existing.salaryMax = p.salaryMax;
+        // Company: backfill if empty, AND overwrite if current value
+        // is a known platform display-name like "Indeed Apply" — those
+        // were classifier mistakes from earlier versions.
+        if (p.company && (!existing.company || isPlatformCompanyName(existing.company))) {
+          existing.company = p.company;
+        }
       } else {
         const newApp = {
           id: uid(),
@@ -2206,11 +2239,14 @@
       id: t.messageId,
       snippet: t.snippet || '',
       internalDate: String(t.internalDate || 0),
-      // Apps Script (current version) optionally returns this — a longer
-      // body excerpt searched specifically for salary patterns. Older
-      // deployments without this field still work; the classifier just
-      // falls back to subject + snippet.
+      // Apps Script (current version) optionally returns these. Older
+      // deployments without these fields still work; the classifier
+      // just falls back to subject + snippet heuristics.
       salaryRaw: t.salaryRaw || '',
+      _hints: {
+        companyHint: t.companyHint || '',
+        roleHint:    t.roleHint || ''
+      },
       payload: {
         headers: [
           { name: 'From',    value: t.from || '' },
@@ -2310,6 +2346,66 @@
   });
 
   document.getElementById('bg-fetch-btn').addEventListener('click', () => fetchFromAppsScript({ silent: false }));
+
+  // Re-classify: pulls fresh data from Apps Script and walks EVERY
+  // imported thread (not just newly-selected ones) so we can fix wrong
+  // company names ("Indeed Apply") and missing roles on rows that were
+  // imported by older classifier versions.
+  document.getElementById('bg-reclassify-btn').addEventListener('click', async function () {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) { setBgStatus('Paste both URL and secret first.', 'error'); return; }
+    if (gmailScanning) return;
+    gmailScanning = true;
+    setBgStatus('Pulling latest from Apps Script for re-classification…', 'busy');
+    try {
+      const resp = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=results&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      if (!Array.isArray(data.threads)) throw new Error('Malformed response');
+
+      let updatedCount = 0, fixedCompany = 0, filledRole = 0, filledSalary = 0;
+      for (const t of data.threads) {
+        const adapted = appsScriptThreadToGapi(t);
+        const p = classifyGmailMessage(adapted);
+        const appId = state.gmail.threadToAppId[t.threadId];
+        if (!appId) continue; // Only re-classify threads we previously imported.
+        const app = state.applications.find(a => a.id === appId);
+        if (!app) continue;
+        let touched = false;
+        if (p.company && (!app.company || isPlatformCompanyName(app.company))) {
+          if (app.company !== p.company) { app.company = p.company; fixedCompany++; touched = true; }
+        }
+        if (p.role && !app.role) { app.role = p.role; filledRole++; touched = true; }
+        if (p.source && (!app.source || app.source === 'other')) {
+          if (app.source !== p.source) { app.source = p.source; touched = true; }
+        }
+        if (app.salaryMin == null && p.salaryMin != null) { app.salaryMin = p.salaryMin; filledSalary++; touched = true; }
+        if (app.salaryMax == null && p.salaryMax != null) { app.salaryMax = p.salaryMax; touched = true; }
+        if (touched) updatedCount++;
+      }
+      save();
+      renderStats();
+      renderApps();
+      refreshInsightsIfActive();
+      setBgStatus(
+        'Re-classified ' + data.threads.length + ' threads · updated ' + updatedCount +
+        ' apps · fixed ' + fixedCompany + ' companies · filled ' + filledRole + ' roles · ' +
+        filledSalary + ' salaries',
+        'ok'
+      );
+    } catch (e) {
+      console.error(e);
+      setBgStatus('Re-classify failed: ' + e.message, 'error');
+    } finally {
+      gmailScanning = false;
+    }
+  });
 
   // ---- Auto-scan plumbing ----
 
