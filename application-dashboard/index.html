@@ -1,0 +1,1465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Application Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #161a23;
+    --panel-2: #1e2330;
+    --border: #262d3d;
+    --text: #e7ebf3;
+    --muted: #8a93a6;
+    --accent: #6c8cff;
+    --accent-2: #8a6cff;
+    --green: #3fcf8e;
+    --amber: #f5b342;
+    --red: #ef5a6f;
+    --blue: #5aa9ef;
+    --shadow: 0 6px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { min-height: 100vh; }
+
+  /* App shell: left nav + main view */
+  .app-shell { display: flex; min-height: 100vh; }
+  .app-nav {
+    width: 240px; flex-shrink: 0;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 22px 14px;
+    display: flex; flex-direction: column; gap: 6px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .app-nav .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .app-nav .brand h1 { font-size: 15px; margin: 0; font-weight: 700; }
+  .app-nav .brand .subtitle { color: var(--muted); font-size: 10px; margin-top: 2px; letter-spacing: .04em; }
+  .nav-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px; cursor: pointer;
+    color: var(--muted); font-weight: 600; font-size: 14px;
+    border: 1px solid transparent;
+    transition: background .15s ease, color .15s ease;
+    text-decoration: none;
+    user-select: none;
+  }
+  .nav-link:hover { color: var(--text); background: var(--panel-2); }
+  .nav-link.active {
+    background: linear-gradient(135deg, rgba(108,140,255,.18), rgba(138,108,255,.10));
+    color: var(--text);
+    border-color: rgba(108,140,255,.35);
+  }
+  .nav-link .icon { width: 20px; height: 20px; flex-shrink: 0; }
+  .nav-link .live-pill {
+    margin-left: auto;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+    transition: background .15s ease;
+  }
+  .nav-link.live .live-pill { background: var(--green); box-shadow: 0 0 0 3px rgba(63,207,142,.2); animation: pulse 2s infinite; }
+
+  .app-main {
+    flex: 1; min-width: 0;
+    max-width: 1200px;
+    padding: 28px 32px 80px;
+  }
+  @media (max-width: 800px) {
+    .app-shell { flex-direction: column; }
+    .app-nav { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; padding: 12px; gap: 4px; }
+    .app-nav .brand { width: 100%; padding-bottom: 10px; margin-bottom: 8px; }
+    .app-main { padding: 20px 16px 60px; }
+  }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  header.app-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+  header.app-head h1 { font-size: 22px; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+  header.app-head .subtitle { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .brand-mark {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center; font-weight: 800; color: white;
+    box-shadow: 0 4px 14px rgba(108,140,255,.35);
+    flex-shrink: 0;
+  }
+
+  /* Sidebar timesheet */
+  .timesheet-block { display: flex; flex-direction: column; gap: 12px; }
+  .timesheet-block .section-title {
+    font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em;
+    font-weight: 600; margin: 0;
+  }
+  /* Big clock card for the timesheet dashboard view */
+  .clock-card {
+    background: linear-gradient(135deg, rgba(108,140,255,.12), rgba(138,108,255,.06));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 32px;
+    box-shadow: var(--shadow);
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px; align-items: center;
+    margin-bottom: 22px;
+  }
+  @media (max-width: 760px) { .clock-card { grid-template-columns: 1fr; padding: 22px; } }
+
+  .clock-display { display: flex; flex-direction: column; gap: 6px; }
+  .now-time { font-size: 64px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .now-date { color: var(--muted); font-size: 14px; }
+
+  .clock-status-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); margin-top: 8px; }
+  .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .status-dot.on { background: var(--green); box-shadow: 0 0 0 5px rgba(63,207,142,.18); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 5px rgba(63,207,142,.18); } 50% { box-shadow: 0 0 0 10px rgba(63,207,142,.05); } }
+
+  .clock-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .clock-actions button { padding: 16px 12px; font-size: 15px; }
+
+  /* Big totals grid */
+  .totals-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+  @media (max-width: 760px) { .totals-grid { grid-template-columns: repeat(2, 1fr); } }
+  .total-cell {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .total-cell .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+  .total-cell .val { font-size: 26px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .total-cell.session .val { color: var(--accent); }
+  .total-cell.today .val { color: var(--blue); }
+  .total-cell.week .val { color: var(--green); }
+  .total-cell.total .val { color: var(--text); }
+  button { font-family: inherit; cursor: pointer; border: none; border-radius: 10px; padding: 10px 16px; font-weight: 600; font-size: 14px; transition: transform .05s ease, background .15s ease, opacity .15s ease; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover:not(:disabled) { background: #5b7bff; }
+  .btn-danger { background: var(--red); color: white; }
+  .btn-danger:hover:not(:disabled) { background: #e64a60; }
+  .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--panel-2); }
+  .btn-sm { padding: 6px 10px; font-size: 12px; }
+
+  /* Stats grid */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 22px; }
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .stat .value { font-size: 28px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .stat.applied .value { color: var(--text); }
+  .stat.interview .value { color: var(--blue); }
+  .stat.assessment .value { color: var(--amber); }
+  .stat.offer .value { color: var(--green); }
+  .stat.rejected .value { color: var(--red); }
+
+  /* Panels */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .panel h2 { font-size: 15px; margin: 0 0 14px; font-weight: 600; letter-spacing: .01em; display: flex; align-items: center; justify-content: space-between; }
+  .panel h2 .count { color: var(--muted); font-weight: 500; font-size: 12px; }
+
+  /* Form */
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .form-grid .span-2 { grid-column: span 2; }
+  .form-grid .span-3 { grid-column: span 3; }
+  .form-grid .span-6 { grid-column: 1 / -1; }
+  .form-grid .submit-row { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field > label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .salary-range { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; }
+  .salary-range .dash { color: var(--muted); font-size: 13px; }
+  @media (max-width: 800px) {
+    .form-grid { grid-template-columns: 1fr 1fr; }
+    .form-grid .span-2, .form-grid .span-3 { grid-column: span 2; }
+  }
+  input, select, textarea {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 9px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color .15s ease;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  input::placeholder, textarea::placeholder { color: #5b6376; }
+
+  /* Filter row */
+  .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; user-select: none;
+    transition: all .15s ease;
+  }
+  .chip:hover { color: var(--text); }
+  .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  thead th {
+    text-align: left; font-weight: 600; font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .06em;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+  }
+  tbody td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,.02); }
+  .empty { padding: 28px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  .badge {
+    display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  }
+  .badge.applied    { background: rgba(138,147,166,.18); color: #b6bccb; }
+  .badge.interview  { background: rgba(90,169,239,.18);  color: var(--blue); }
+  .badge.assessment { background: rgba(245,179,66,.18);  color: var(--amber); }
+  .badge.offer      { background: rgba(63,207,142,.18);  color: var(--green); }
+  .badge.rejected   { background: rgba(239,90,111,.18);  color: var(--red); }
+
+  .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .row-actions select {
+    background: var(--panel-2); padding: 6px 8px; font-size: 12px;
+  }
+  .icon-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 10px; border-radius: 8px; font-size: 12px;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--text); }
+  .icon-btn.danger:hover { color: var(--red); border-color: var(--red); }
+
+  /* Sessions list — table-style rows for the dashboard view */
+  .sessions { display: flex; flex-direction: column; gap: 8px; }
+  .session-row {
+    padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel-2); font-size: 14px;
+    display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 16px; align-items: center;
+  }
+  @media (max-width: 700px) { .session-row { grid-template-columns: 1fr 1fr; } }
+  .session-row.live { border-color: rgba(63,207,142,.5); background: rgba(63,207,142,.07); }
+  .session-row .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .session-row .v { font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .session-row .v.duration { font-weight: 700; }
+  .session-row .live-tag { color: var(--green); font-weight: 700; font-size: 12px; }
+
+  .footer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+
+  /* Insights view */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+  @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .kpi {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .kpi .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+  .kpi .val { font-size: 26px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .kpi.avg .val { color: var(--accent); }
+  .kpi.high .val { color: var(--green); }
+  .kpi.low .val { color: var(--amber); }
+  .kpi.rate .val { color: var(--blue); }
+
+  .insights-row { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .insights-row { grid-template-columns: 1fr; } }
+
+  .bar-chart { display: flex; flex-direction: column; gap: 10px; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 60px; align-items: center; gap: 12px; font-size: 13px; }
+  .bar-row .name { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .bar-row .track { background: var(--panel-2); border-radius: 999px; height: 10px; overflow: hidden; }
+  .bar-row .fill { height: 100%; border-radius: 999px; transition: width .3s ease; min-width: 2px; }
+  .bar-row .fill.applied    { background: #b6bccb; }
+  .bar-row .fill.interview  { background: var(--blue); }
+  .bar-row .fill.assessment { background: var(--amber); }
+  .bar-row .fill.offer      { background: var(--green); }
+  .bar-row .fill.rejected   { background: var(--red); }
+  .bar-row .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .salary-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+  .salary-item {
+    display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel-2); font-size: 13px;
+  }
+  .salary-item .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .salary-item .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Source chips */
+  .source-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+  }
+  .source-tag.linkedin   { color: #5aa9ef; border-color: rgba(90,169,239,.4); }
+  .source-tag.referral   { color: var(--green);  border-color: rgba(63,207,142,.4); }
+  .source-tag.company    { color: var(--accent); border-color: rgba(108,140,255,.4); }
+  .source-tag.recruiter  { color: var(--amber);  border-color: rgba(245,179,66,.4); }
+  .source-tag.other      { color: var(--muted); }
+
+  /* Goal indicator */
+  .goal-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    background: rgba(63,207,142,.14); color: var(--green);
+    border: 1px solid rgba(63,207,142,.4);
+  }
+  .goal-chip.under  { background: rgba(245,179,66,.14); color: var(--amber); border-color: rgba(245,179,66,.4); }
+  .goal-chip.miss   { background: rgba(239,90,111,.12); color: var(--red); border-color: rgba(239,90,111,.35); }
+
+  /* Follow-up cell coloring */
+  .follow-up { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
+  .follow-up.due    { color: var(--amber); font-weight: 600; }
+  .follow-up.overdue { color: var(--red);   font-weight: 700; }
+  .follow-up.done   { color: var(--green); }
+
+  /* Expandable details row */
+  .expand-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    width: 26px; height: 26px; padding: 0; border-radius: 7px; font-size: 14px;
+    display: inline-grid; place-items: center;
+  }
+  .expand-btn:hover { color: var(--text); border-color: var(--text); }
+  .expand-btn.open { color: var(--accent); border-color: rgba(108,140,255,.5); transform: rotate(180deg); }
+  .details-row td {
+    padding: 0 12px 14px;
+    background: rgba(255,255,255,.015);
+  }
+  .details-grid {
+    display: grid; grid-template-columns: 1.4fr 1fr .9fr; gap: 12px;
+    padding: 14px; border: 1px dashed var(--border); border-radius: 10px;
+    background: var(--panel-2);
+  }
+  @media (max-width: 800px) { .details-grid { grid-template-columns: 1fr; } }
+  .details-grid label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; display: flex; flex-direction: column; gap: 4px; }
+  .details-grid input, .details-grid textarea { font-size: 13px; padding: 8px 10px; }
+  .details-grid textarea { min-height: 64px; resize: vertical; font-family: inherit; }
+
+  /* Conversion funnel */
+  .funnel {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 800px) { .funnel { grid-template-columns: repeat(2, 1fr); } }
+  .funnel-stage {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .funnel-stage::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--muted);
+  }
+  .funnel-stage.applied::before    { background: #b6bccb; }
+  .funnel-stage.interview::before  { background: var(--blue); }
+  .funnel-stage.assessment::before { background: var(--amber); }
+  .funnel-stage.offer::before      { background: var(--green); }
+  .funnel-stage .stage-name { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .funnel-stage .stage-count { font-size: 28px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .funnel-stage .stage-conv {
+    font-size: 11px; color: var(--muted); margin-top: 4px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .funnel-stage .stage-conv b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .funnel-note { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Goal panel */
+  .goal-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; }
+  @media (max-width: 760px) { .goal-panel { grid-template-columns: 1fr; } }
+  .goal-input { display: flex; align-items: center; gap: 8px; }
+  .goal-input .currency { color: var(--muted); font-size: 14px; }
+  .goal-meter {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .goal-meter .pct { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .goal-meter .pct.met  { color: var(--green); }
+  .goal-meter .pct.miss { color: var(--amber); }
+  .goal-meter .meter-bar { background: var(--panel); border-radius: 999px; height: 8px; overflow: hidden; }
+  .goal-meter .meter-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); border-radius: 999px; transition: width .3s ease; }
+  .goal-meter .meta { color: var(--muted); font-size: 12px; }
+
+  /* Source breakdown */
+  .source-bar-row { display: grid; grid-template-columns: 130px 1fr 60px; align-items: center; gap: 12px; font-size: 13px; }
+  .source-bar-row .name { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .source-bar-row .track { background: var(--panel-2); border-radius: 999px; height: 10px; overflow: hidden; }
+  .source-bar-row .fill { height: 100%; border-radius: 999px; min-width: 2px; transition: width .3s ease; }
+  .source-bar-row .fill.linkedin  { background: var(--blue); }
+  .source-bar-row .fill.referral  { background: var(--green); }
+  .source-bar-row .fill.company   { background: var(--accent); }
+  .source-bar-row .fill.recruiter { background: var(--amber); }
+  .source-bar-row .fill.other     { background: var(--muted); }
+  .source-bar-row .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .source-meta { color: var(--muted); font-size: 11px; margin-left: 12px; }
+
+  /* Compact secondary cell */
+  .cell-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ========== LEFT NAV ========== -->
+  <nav class="app-nav">
+    <div class="brand">
+      <div class="brand-mark">A</div>
+      <div>
+        <h1>Dashboard</h1>
+        <div class="subtitle">Job hunt HQ</div>
+      </div>
+    </div>
+    <a class="nav-link active" data-view="applications" href="#applications">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-3 7 3z"/></svg>
+      <span>Applications</span>
+    </a>
+    <a class="nav-link" id="nav-timesheet" data-view="timesheet" href="#timesheet">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span>Time Tracker</span>
+      <span class="live-pill"></span>
+    </a>
+    <a class="nav-link" data-view="insights" href="#insights">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+      <span>Insights</span>
+    </a>
+  </nav>
+
+  <!-- ========== MAIN ========== -->
+  <main class="app-main">
+
+    <!-- VIEW: APPLICATIONS -->
+    <section class="view active" id="view-applications">
+      <header class="app-head">
+        <div>
+          <h1>Application Dashboard</h1>
+          <div class="subtitle">Track applications, interviews, assessments &amp; rejections</div>
+        </div>
+        <div class="footer-actions">
+          <button class="btn-ghost btn-sm" id="export-btn">Export JSON</button>
+          <button class="btn-ghost btn-sm" id="import-btn">Import</button>
+          <input type="file" id="import-file" accept="application/json" hidden />
+        </div>
+      </header>
+
+      <section class="stats">
+        <div class="stat applied"><div class="label">Applied</div><div class="value" id="stat-applied">0</div></div>
+        <div class="stat interview"><div class="label">Interview Requests</div><div class="value" id="stat-interview">0</div></div>
+        <div class="stat assessment"><div class="label">Assessments</div><div class="value" id="stat-assessment">0</div></div>
+        <div class="stat offer"><div class="label">Offers</div><div class="value" id="stat-offer">0</div></div>
+        <div class="stat rejected"><div class="label">Rejections</div><div class="value" id="stat-rejected">0</div></div>
+      </section>
+
+      <section class="panel">
+        <h2>Add Application</h2>
+        <form id="add-form" class="form-grid">
+          <div class="field span-2">
+            <label for="f-company">Company</label>
+            <input type="text" id="f-company" placeholder="e.g. Acme Inc." required />
+          </div>
+          <div class="field span-2">
+            <label for="f-role">Role / Title</label>
+            <input type="text" id="f-role" placeholder="e.g. Senior Engineer" required />
+          </div>
+          <div class="field span-2">
+            <label for="f-location">Location</label>
+            <input type="text" id="f-location" placeholder="Remote, NYC, Berlin…" />
+          </div>
+
+          <div class="field span-2">
+            <label>Salary range (USD/yr)</label>
+            <div class="salary-range">
+              <input type="number" id="f-salary-min" placeholder="Min" min="0" step="1000" />
+              <span class="dash">–</span>
+              <input type="number" id="f-salary-max" placeholder="Max" min="0" step="1000" />
+            </div>
+          </div>
+          <div class="field span-2">
+            <label for="f-source">Source</label>
+            <select id="f-source">
+              <option value="">— Pick a channel —</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="referral">Referral</option>
+              <option value="company">Company site</option>
+              <option value="recruiter">Recruiter</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-date">Applied</label>
+            <input type="date" id="f-date" />
+          </div>
+          <div class="field">
+            <label for="f-status">Status</label>
+            <select id="f-status">
+              <option value="applied">Applied</option>
+              <option value="interview">Interview Request</option>
+              <option value="assessment">Assessment</option>
+              <option value="offer">Offer</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+
+          <div class="field span-3">
+            <label for="f-next-action">Next action</label>
+            <input type="text" id="f-next-action" placeholder="e.g. Send thank-you email, prep system-design round" />
+          </div>
+          <div class="field span-3">
+            <label for="f-follow-up">Follow up by</label>
+            <input type="date" id="f-follow-up" />
+          </div>
+          <div class="field span-6">
+            <label for="f-notes">Notes</label>
+            <textarea id="f-notes" rows="2" placeholder="Anything worth remembering — recruiter name, JD link, prep gaps…"></textarea>
+          </div>
+
+          <div class="submit-row">
+            <button type="submit" class="btn-primary">Add Application</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Applications <span class="count" id="apps-count">0 total</span></h2>
+        <div class="filter-row" id="filter-row">
+          <span class="chip active" data-filter="all">All</span>
+          <span class="chip" data-filter="applied">Applied</span>
+          <span class="chip" data-filter="interview">Interview Requests</span>
+          <span class="chip" data-filter="assessment">Assessments</span>
+          <span class="chip" data-filter="offer">Offers</span>
+          <span class="chip" data-filter="rejected">Rejections</span>
+        </div>
+        <div class="table-wrap">
+          <table id="apps-table">
+            <thead>
+              <tr>
+                <th style="width: 26px;"></th>
+                <th>Company / Role</th>
+                <th>Source</th>
+                <th>Salary</th>
+                <th>Follow up</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="apps-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- VIEW: TIME TRACKER -->
+    <section class="view" id="view-timesheet">
+      <header class="app-head">
+        <div>
+          <h1>Time Tracker</h1>
+          <div class="subtitle">Clock in, log your hours, review past sessions</div>
+        </div>
+      </header>
+
+      <div class="clock-card">
+        <div>
+          <div class="clock-display">
+            <div class="now-time" id="now-time">--:--:--</div>
+            <div class="now-date" id="now-date">—</div>
+          </div>
+          <div class="clock-status-row">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-label">Clocked out</span>
+          </div>
+        </div>
+        <div class="clock-actions">
+          <button class="btn-primary" id="clock-in-btn">Clock In</button>
+          <button class="btn-danger" id="clock-out-btn" disabled>Clock Out</button>
+        </div>
+      </div>
+
+      <div class="totals-grid">
+        <div class="total-cell session">
+          <div class="lbl">Current Session</div>
+          <div class="val" id="session-elapsed">0:00:00</div>
+        </div>
+        <div class="total-cell today">
+          <div class="lbl">Today</div>
+          <div class="val" id="today-total">0h 00m</div>
+        </div>
+        <div class="total-cell week">
+          <div class="lbl">This Week</div>
+          <div class="val" id="week-total">0h 00m</div>
+        </div>
+        <div class="total-cell total">
+          <div class="lbl">All Time</div>
+          <div class="val" id="all-total">0h 00m</div>
+        </div>
+      </div>
+
+      <section class="panel">
+        <h2>Recent Sessions <span class="count" id="sessions-count">0</span></h2>
+        <div id="sessions-list" class="sessions"></div>
+      </section>
+    </section>
+
+    <!-- VIEW: INSIGHTS -->
+    <section class="view" id="view-insights">
+      <header class="app-head">
+        <div>
+          <h1>Insights</h1>
+          <div class="subtitle">Salary trends and pipeline analytics across your applications</div>
+        </div>
+      </header>
+
+      <section class="panel">
+        <h2>Conversion Funnel <span class="count" id="funnel-total">0 applications</span></h2>
+        <div class="funnel" id="funnel"></div>
+        <div class="funnel-note">Stage-to-stage % shows how many of the previous stage made it to the next. Rejections are excluded from the funnel but counted separately.</div>
+      </section>
+
+      <section class="kpi-grid">
+        <div class="kpi avg">
+          <div class="lbl">Average Salary</div>
+          <div class="val" id="kpi-avg">—</div>
+          <div class="sub" id="kpi-avg-sub">across applications with salary</div>
+        </div>
+        <div class="kpi high">
+          <div class="lbl">Highest</div>
+          <div class="val" id="kpi-high">—</div>
+          <div class="sub" id="kpi-high-sub">—</div>
+        </div>
+        <div class="kpi low">
+          <div class="lbl">Lowest</div>
+          <div class="val" id="kpi-low">—</div>
+          <div class="sub" id="kpi-low-sub">—</div>
+        </div>
+        <div class="kpi rate">
+          <div class="lbl">Interview Rate</div>
+          <div class="val" id="kpi-rate">—</div>
+          <div class="sub" id="kpi-rate-sub">interview+ over total</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Comp Goal</h2>
+        <div class="goal-panel">
+          <div class="field">
+            <label for="goal-input">Target salary (USD/yr)</label>
+            <div class="goal-input">
+              <span class="currency">$</span>
+              <input type="number" id="goal-input" min="0" step="1000" placeholder="e.g. 150000" />
+            </div>
+            <div class="cell-meta">Salary max meets or exceeds this number to count as on-goal.</div>
+          </div>
+          <div class="goal-meter">
+            <div class="lbl" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600;">On-goal applications</div>
+            <div class="pct" id="goal-pct">—</div>
+            <div class="meter-bar"><div class="fill" id="goal-fill" style="width:0%"></div></div>
+            <div class="meta" id="goal-meta">Set a goal to see how your pipeline lines up.</div>
+          </div>
+        </div>
+      </section>
+
+      <div class="insights-row">
+        <section class="panel">
+          <h2>Pipeline Breakdown <span class="count" id="insights-total">0 total</span></h2>
+          <div class="bar-chart" id="status-chart"></div>
+        </section>
+
+        <section class="panel">
+          <h2>What's Working <span class="count" id="source-total">0</span></h2>
+          <div class="bar-chart" id="source-chart"></div>
+        </section>
+      </div>
+
+      <div class="insights-row">
+        <section class="panel">
+          <h2>Average Salary by Status</h2>
+          <div class="bar-chart" id="salary-by-status"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Top Salaries <span class="count" id="top-salary-count">0</span></h2>
+          <div id="top-salary-list" class="salary-list"></div>
+        </section>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const STORAGE_KEY = 'application-dashboard-v1';
+  const SOURCE_LABELS = {
+    linkedin:  'LinkedIn',
+    referral:  'Referral',
+    company:   'Company site',
+    recruiter: 'Recruiter',
+    other:     'Other'
+  };
+  const SOURCE_KEYS = ['linkedin', 'referral', 'company', 'recruiter', 'other'];
+  const state = load();
+  let activeFilter = 'all';
+  const expanded = new Set();   // ids of rows currently expanded
+
+  function migrateApp(a) {
+    if (!a || typeof a !== 'object') return a;
+    // legacy single salary -> range
+    if ((a.salaryMin == null || a.salaryMin === '') && (a.salaryMax == null || a.salaryMax === '')) {
+      const legacy = Number(a.salary);
+      if (isFinite(legacy) && legacy > 0) {
+        a.salaryMin = legacy;
+        a.salaryMax = legacy;
+      }
+    }
+    if (a.salaryMin === '' || a.salaryMin == null) a.salaryMin = null; else a.salaryMin = Number(a.salaryMin);
+    if (a.salaryMax === '' || a.salaryMax == null) a.salaryMax = null; else a.salaryMax = Number(a.salaryMax);
+    if (typeof a.source !== 'string') a.source = '';
+    if (typeof a.location !== 'string') a.location = '';
+    if (typeof a.notes !== 'string') a.notes = '';
+    if (typeof a.nextAction !== 'string') a.nextAction = '';
+    if (typeof a.followUp !== 'string') a.followUp = '';
+    return a;
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const apps = (parsed.applications || []).map(migrateApp);
+        return {
+          applications: apps,
+          sessions: parsed.sessions || [],
+          activeSession: parsed.activeSession || null,
+          goalSalary: Number(parsed.goalSalary) > 0 ? Number(parsed.goalSalary) : null
+        };
+      }
+    } catch (e) { /* fall through */ }
+    return { applications: [], sessions: [], activeSession: null, goalSalary: null };
+  }
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+  function formatTime(d) {
+    return d.toLocaleTimeString(undefined, { hour12: false });
+  }
+  function formatDate(d) {
+    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function formatDuration(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h + 'h ' + String(m).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
+  }
+  function formatCompact(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  function formatHM(ms) {
+    const total = Math.max(0, Math.floor(ms / 60000));
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return h + 'h ' + String(m).padStart(2, '0') + 'm';
+  }
+
+  // ---------- Live clock + session ticker ----------
+  function tickClock() {
+    const now = new Date();
+    document.getElementById('now-time').textContent = formatTime(now);
+    document.getElementById('now-date').textContent = formatDate(now);
+    if (state.activeSession) {
+      const elapsed = Date.now() - state.activeSession.start;
+      document.getElementById('session-elapsed').textContent = formatCompact(elapsed);
+    }
+    updateTotals();
+  }
+
+  function updateTotals() {
+    const now = new Date();
+    const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+    const dayOfWeek = (now.getDay() + 6) % 7; // Monday=0
+    const startOfWeek = new Date(startOfDay); startOfWeek.setDate(startOfDay.getDate() - dayOfWeek);
+
+    let dayMs = 0, weekMs = 0, allMs = 0;
+    for (const s of state.sessions) {
+      const end = s.end || Date.now();
+      allMs += Math.max(0, end - s.start);
+      if (end >= startOfDay.getTime()) dayMs += Math.max(0, end - Math.max(s.start, startOfDay.getTime()));
+      if (end >= startOfWeek.getTime()) weekMs += Math.max(0, end - Math.max(s.start, startOfWeek.getTime()));
+    }
+    if (state.activeSession) {
+      const live = Date.now();
+      allMs += live - state.activeSession.start;
+      if (live >= startOfDay.getTime()) dayMs += live - Math.max(state.activeSession.start, startOfDay.getTime());
+      if (live >= startOfWeek.getTime()) weekMs += live - Math.max(state.activeSession.start, startOfWeek.getTime());
+    }
+    document.getElementById('today-total').textContent = formatHM(dayMs);
+    document.getElementById('week-total').textContent = formatHM(weekMs);
+    const allEl = document.getElementById('all-total');
+    if (allEl) allEl.textContent = formatHM(allMs);
+  }
+
+  function updateClockUI() {
+    const dot = document.getElementById('status-dot');
+    const lbl = document.getElementById('status-label');
+    const inBtn = document.getElementById('clock-in-btn');
+    const outBtn = document.getElementById('clock-out-btn');
+    if (state.activeSession) {
+      dot.classList.add('on');
+      lbl.textContent = 'Clocked in since ' + formatTime(new Date(state.activeSession.start));
+      inBtn.disabled = true;
+      outBtn.disabled = false;
+    } else {
+      dot.classList.remove('on');
+      lbl.textContent = 'Clocked out';
+      document.getElementById('session-elapsed').textContent = '0:00:00';
+      inBtn.disabled = false;
+      outBtn.disabled = true;
+    }
+    const navLink = document.getElementById('nav-timesheet');
+    if (navLink) navLink.classList.toggle('live', !!state.activeSession);
+  }
+
+  function clockIn() {
+    if (state.activeSession) return;
+    state.activeSession = { start: Date.now() };
+    save();
+    updateClockUI();
+    renderSessions();
+  }
+  function clockOut() {
+    if (!state.activeSession) return;
+    const session = { id: uid(), start: state.activeSession.start, end: Date.now() };
+    state.sessions.unshift(session);
+    state.activeSession = null;
+    save();
+    updateClockUI();
+    renderSessions();
+    updateTotals();
+  }
+
+  // ---------- Applications ----------
+  function statusLabel(s) {
+    return ({
+      applied: 'Applied',
+      interview: 'Interview',
+      assessment: 'Assessment',
+      offer: 'Offer',
+      rejected: 'Rejected'
+    })[s] || s;
+  }
+
+  function renderStats() {
+    const counts = { applied: 0, interview: 0, assessment: 0, offer: 0, rejected: 0 };
+    for (const a of state.applications) if (counts[a.status] !== undefined) counts[a.status]++;
+    document.getElementById('stat-applied').textContent = counts.applied;
+    document.getElementById('stat-interview').textContent = counts.interview;
+    document.getElementById('stat-assessment').textContent = counts.assessment;
+    document.getElementById('stat-offer').textContent = counts.offer;
+    document.getElementById('stat-rejected').textContent = counts.rejected;
+    document.getElementById('apps-count').textContent = state.applications.length + ' total';
+  }
+
+  function renderApps() {
+    const body = document.getElementById('apps-body');
+    body.innerHTML = '';
+    const filtered = activeFilter === 'all'
+      ? state.applications
+      : state.applications.filter(a => a.status === activeFilter);
+
+    if (!filtered.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="7" class="empty">No applications yet. Add one above to get started.</td>';
+      body.appendChild(tr);
+      return;
+    }
+
+    const sorted = filtered.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    for (const a of sorted) {
+      const isOpen = expanded.has(a.id);
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' +
+          '<button class="expand-btn' + (isOpen ? ' open' : '') + '" data-expand="' + a.id + '" aria-label="Expand">' +
+            '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+          '</button>' +
+        '</td>' +
+        '<td>' +
+          '<b>' + escapeHtml(a.company) + '</b>' +
+          '<div class="cell-meta">' + escapeHtml(a.role) +
+            (a.location ? ' · ' + escapeHtml(a.location) : '') +
+            (a.date ? ' · applied ' + a.date : '') +
+          '</div>' +
+        '</td>' +
+        '<td>' + sourceTag(a.source) + '</td>' +
+        '<td>' + salaryCell(a) + '</td>' +
+        '<td>' + followUpCell(a) + '</td>' +
+        '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
+        '<td><div class="row-actions">' +
+          '<select data-id="' + a.id + '" class="status-select">' +
+            ['applied','interview','assessment','offer','rejected'].map(s =>
+              '<option value="' + s + '"' + (s === a.status ? ' selected' : '') + '>' + statusLabel(s) + '</option>'
+            ).join('') +
+          '</select>' +
+          '<button class="icon-btn danger" data-del="' + a.id + '">Delete</button>' +
+        '</div></td>';
+      body.appendChild(tr);
+
+      if (isOpen) {
+        const dr = document.createElement('tr');
+        dr.className = 'details-row';
+        dr.innerHTML =
+          '<td colspan="7">' +
+            '<div class="details-grid">' +
+              '<label>Notes' +
+                '<textarea data-edit="notes" data-id="' + a.id + '" placeholder="Anything worth remembering">' + escapeHtml(a.notes || '') + '</textarea>' +
+              '</label>' +
+              '<label>Next action' +
+                '<input type="text" data-edit="nextAction" data-id="' + a.id + '" placeholder="e.g. Email recruiter" value="' + escapeHtml(a.nextAction || '') + '" />' +
+              '</label>' +
+              '<label>Follow up by' +
+                '<input type="date" data-edit="followUp" data-id="' + a.id + '" value="' + escapeHtml(a.followUp || '') + '" />' +
+              '</label>' +
+            '</div>' +
+          '</td>';
+        body.appendChild(dr);
+      }
+    }
+  }
+
+  function sourceTag(src) {
+    if (!src) return '<span class="source-tag other">—</span>';
+    const cls = SOURCE_LABELS[src] ? src : 'other';
+    return '<span class="source-tag ' + cls + '">' + escapeHtml(SOURCE_LABELS[src] || src) + '</span>';
+  }
+
+  function salaryCell(a) {
+    const min = Number(a.salaryMin), max = Number(a.salaryMax);
+    const hasMin = isFinite(min) && min > 0;
+    const hasMax = isFinite(max) && max > 0;
+    let primary = '—';
+    if (hasMin && hasMax) {
+      primary = (min === max) ? formatSalary(min) : formatSalary(min) + ' – ' + formatSalary(max);
+    } else if (hasMax) primary = 'up to ' + formatSalary(max);
+    else if (hasMin) primary = 'from ' + formatSalary(min);
+
+    let goalChip = '';
+    const goal = Number(state.goalSalary);
+    if (goal > 0 && (hasMin || hasMax)) {
+      const cmp = hasMax ? max : min;
+      if (cmp >= goal) goalChip = '<div><span class="goal-chip" title="At or above your comp goal">★ on goal</span></div>';
+      else if (cmp >= goal * 0.85) goalChip = '<div><span class="goal-chip under" title="Within 15% of your comp goal">close</span></div>';
+      else goalChip = '<div><span class="goal-chip miss" title="Below your comp goal">below goal</span></div>';
+    }
+    return primary + goalChip;
+  }
+
+  function followUpCell(a) {
+    if (!a.followUp) {
+      if (a.nextAction) return '<div class="follow-up">—</div><div class="cell-meta">' + escapeHtml(a.nextAction) + '</div>';
+      return '<div class="follow-up">—</div>';
+    }
+    const today = new Date(); today.setHours(0,0,0,0);
+    const due = new Date(a.followUp + 'T00:00:00');
+    const diff = Math.round((due - today) / 86400000);
+    let cls = 'follow-up';
+    let label = a.followUp;
+    if (a.status === 'offer' || a.status === 'rejected') {
+      cls += ' done';
+    } else if (diff < 0) {
+      cls += ' overdue';
+      label = a.followUp + ' · ' + Math.abs(diff) + 'd late';
+    } else if (diff <= 2) {
+      cls += ' due';
+      label = a.followUp + (diff === 0 ? ' · today' : ' · in ' + diff + 'd');
+    }
+    const meta = a.nextAction ? '<div class="cell-meta">' + escapeHtml(a.nextAction) + '</div>' : '';
+    return '<div class="' + cls + '">' + label + '</div>' + meta;
+  }
+
+  function formatSalary(n) {
+    const v = Number(n);
+    if (!isFinite(v) || v <= 0) return '—';
+    if (v >= 1000) return '$' + Math.round(v / 1000) + 'k';
+    return '$' + v.toLocaleString();
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function renderSessions() {
+    const list = document.getElementById('sessions-list');
+    list.innerHTML = '';
+    const all = state.sessions.slice(0, 20);
+    document.getElementById('sessions-count').textContent = state.sessions.length + (state.activeSession ? 1 : 0);
+
+    if (state.activeSession) {
+      const start = new Date(state.activeSession.start);
+      const div = document.createElement('div');
+      div.className = 'session-row live';
+      div.innerHTML =
+        '<div class="top-line">' +
+          '<span class="live-tag">● Live</span>' +
+          '<span class="duration">' + formatDuration(Date.now() - state.activeSession.start) + '</span>' +
+        '</div>' +
+        '<div class="times">In ' + formatTime(start) + ' · ' + start.toLocaleDateString() + '</div>';
+      list.appendChild(div);
+    }
+
+    if (!all.length && !state.activeSession) {
+      const div = document.createElement('div');
+      div.className = 'empty';
+      div.style.padding = '16px 8px';
+      div.textContent = 'No sessions yet. Clock in to start tracking.';
+      list.appendChild(div);
+      return;
+    }
+
+    for (const s of all) {
+      const start = new Date(s.start), end = new Date(s.end);
+      const sameDay = start.toDateString() === end.toDateString();
+      const div = document.createElement('div');
+      div.className = 'session-row';
+      div.innerHTML =
+        '<div class="top-line">' +
+          '<span class="times">' + start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + '</span>' +
+          '<span class="duration">' + formatDuration(s.end - s.start) + '</span>' +
+        '</div>' +
+        '<div class="top-line">' +
+          '<span class="times">' + formatTime(start) + ' → ' + (sameDay ? formatTime(end) : end.toLocaleString()) + '</span>' +
+          '<button class="icon-btn danger" data-session-del="' + s.id + '">×</button>' +
+        '</div>';
+      list.appendChild(div);
+    }
+  }
+
+  // Best single salary number for an app — prefer max, fall back to min
+  function appSalary(a) {
+    const max = Number(a.salaryMax), min = Number(a.salaryMin);
+    if (isFinite(max) && max > 0) return max;
+    if (isFinite(min) && min > 0) return min;
+    return 0;
+  }
+  function appSalaryLabel(a) {
+    const min = Number(a.salaryMin), max = Number(a.salaryMax);
+    const hasMin = isFinite(min) && min > 0;
+    const hasMax = isFinite(max) && max > 0;
+    if (hasMin && hasMax) return min === max ? formatSalary(min) : formatSalary(min) + ' – ' + formatSalary(max);
+    if (hasMax) return formatSalary(max);
+    if (hasMin) return formatSalary(min);
+    return '—';
+  }
+
+  // ---------- Insights ----------
+  function renderInsights() {
+    const apps = state.applications;
+    const total = apps.length;
+    document.getElementById('insights-total').textContent = total + ' total';
+    document.getElementById('funnel-total').textContent = total + ' application' + (total === 1 ? '' : 's');
+
+    // Per-status counts
+    const statuses = ['applied','interview','assessment','offer','rejected'];
+    const counts = { applied: 0, interview: 0, assessment: 0, offer: 0, rejected: 0 };
+    for (const a of apps) if (counts[a.status] !== undefined) counts[a.status]++;
+
+    // Conversion funnel: cumulative count at each stage (assumes apps progress
+    // forward, so an app at "offer" implicitly passed earlier stages)
+    const funnelStages = ['applied','interview','assessment','offer'];
+    const cumulative = {
+      applied:    counts.applied + counts.interview + counts.assessment + counts.offer,
+      interview:  counts.interview + counts.assessment + counts.offer,
+      assessment: counts.assessment + counts.offer,
+      offer:      counts.offer
+    };
+    const funnelEl = document.getElementById('funnel');
+    funnelEl.innerHTML = funnelStages.map((s, i) => {
+      const n = cumulative[s];
+      const prev = i === 0 ? null : cumulative[funnelStages[i - 1]];
+      let convHtml = '';
+      if (i === 0) {
+        convHtml = '<div class="stage-conv">excludes ' + counts.rejected + ' rejected</div>';
+      } else if (prev > 0) {
+        const pct = Math.round((n / prev) * 100);
+        convHtml = '<div class="stage-conv">→ <b>' + pct + '%</b> from ' + statusLabel(funnelStages[i - 1]) + '</div>';
+      } else {
+        convHtml = '<div class="stage-conv">—</div>';
+      }
+      return '<div class="funnel-stage ' + s + '">' +
+        '<div class="stage-name">' + statusLabel(s) + '</div>' +
+        '<div class="stage-count">' + n + '</div>' +
+        convHtml +
+      '</div>';
+    }).join('');
+
+    // Pipeline breakdown bars (preserved)
+    const max = Math.max(1, ...statuses.map(s => counts[s]));
+    const chart = document.getElementById('status-chart');
+    chart.innerHTML = statuses.map(s => {
+      const pct = (counts[s] / max) * 100;
+      return '<div class="bar-row">' +
+        '<span class="name">' + statusLabel(s) + '</span>' +
+        '<span class="track"><span class="fill ' + s + '" style="width:' + pct + '%"></span></span>' +
+        '<span class="num">' + counts[s] + '</span>' +
+      '</div>';
+    }).join('');
+
+    // Salary KPIs (use max-salary as the comparable number)
+    const withSalary = apps.filter(a => appSalary(a) > 0);
+    const salaries = withSalary.map(appSalary);
+    if (salaries.length) {
+      const avg = salaries.reduce((sum, n) => sum + n, 0) / salaries.length;
+      const high = withSalary.reduce((best, a) => appSalary(a) > appSalary(best) ? a : best, withSalary[0]);
+      const low  = withSalary.reduce((worst, a) => appSalary(a) < appSalary(worst) ? a : worst, withSalary[0]);
+      document.getElementById('kpi-avg').textContent = formatSalary(avg);
+      document.getElementById('kpi-avg-sub').textContent = salaries.length + ' of ' + total + ' application(s) with salary';
+      document.getElementById('kpi-high').textContent = appSalaryLabel(high);
+      document.getElementById('kpi-high-sub').textContent = high.company + ' · ' + high.role;
+      document.getElementById('kpi-low').textContent = appSalaryLabel(low);
+      document.getElementById('kpi-low-sub').textContent = low.company + ' · ' + low.role;
+    } else {
+      document.getElementById('kpi-avg').textContent = '—';
+      document.getElementById('kpi-avg-sub').textContent = 'Add a salary range to see metrics';
+      document.getElementById('kpi-high').textContent = '—';
+      document.getElementById('kpi-high-sub').textContent = '—';
+      document.getElementById('kpi-low').textContent = '—';
+      document.getElementById('kpi-low-sub').textContent = '—';
+    }
+
+    // Interview rate (interview + assessment + offer) / total
+    const advanced = counts.interview + counts.assessment + counts.offer;
+    const rate = total ? Math.round((advanced / total) * 100) : 0;
+    document.getElementById('kpi-rate').textContent = total ? rate + '%' : '—';
+    document.getElementById('kpi-rate-sub').textContent = advanced + ' of ' + total + ' advanced past applied';
+
+    // Comp goal panel
+    const goalInput = document.getElementById('goal-input');
+    if (state.goalSalary && document.activeElement !== goalInput) goalInput.value = state.goalSalary;
+    const goalPct = document.getElementById('goal-pct');
+    const goalFill = document.getElementById('goal-fill');
+    const goalMeta = document.getElementById('goal-meta');
+    const goal = Number(state.goalSalary);
+    if (goal > 0 && withSalary.length) {
+      const onGoal = withSalary.filter(a => appSalary(a) >= goal).length;
+      const pct = Math.round((onGoal / withSalary.length) * 100);
+      goalPct.textContent = pct + '%';
+      goalPct.classList.toggle('met', pct >= 50);
+      goalPct.classList.toggle('miss', pct < 50);
+      goalFill.style.width = pct + '%';
+      goalMeta.textContent = onGoal + ' of ' + withSalary.length + ' applications meet ' + formatSalary(goal) + '+';
+    } else {
+      goalPct.textContent = goal > 0 ? '—' : '—';
+      goalPct.classList.remove('met', 'miss');
+      goalFill.style.width = '0%';
+      goalMeta.textContent = goal > 0
+        ? 'Add a salary range to applications to compare against your goal.'
+        : 'Set a target salary to see how your pipeline lines up.';
+    }
+
+    // Average salary per status
+    const salaryByStatus = document.getElementById('salary-by-status');
+    const statusAverages = statuses.map(s => {
+      const group = withSalary.filter(a => a.status === s).map(appSalary);
+      const a = group.length ? group.reduce((sum, n) => sum + n, 0) / group.length : 0;
+      return { status: s, avg: a, count: group.length };
+    });
+    const maxAvg = Math.max(1, ...statusAverages.map(r => r.avg));
+    salaryByStatus.innerHTML = statusAverages.map(r => {
+      const pct = (r.avg / maxAvg) * 100;
+      return '<div class="bar-row">' +
+        '<span class="name">' + statusLabel(r.status) + '</span>' +
+        '<span class="track"><span class="fill ' + r.status + '" style="width:' + pct + '%"></span></span>' +
+        '<span class="num">' + (r.count ? formatSalary(r.avg) : '—') + '</span>' +
+      '</div>';
+    }).join('');
+
+    // Source / channel breakdown ("What's working")
+    // Score each source by both volume AND advancement rate
+    const sourceCounts = {};
+    const sourceAdvanced = {};
+    for (const k of SOURCE_KEYS) { sourceCounts[k] = 0; sourceAdvanced[k] = 0; }
+    let untagged = 0;
+    for (const a of apps) {
+      const s = SOURCE_KEYS.includes(a.source) ? a.source : (a.source ? 'other' : null);
+      if (!s) { untagged++; continue; }
+      sourceCounts[s]++;
+      if (a.status === 'interview' || a.status === 'assessment' || a.status === 'offer') sourceAdvanced[s]++;
+    }
+    const tagged = apps.length - untagged;
+    document.getElementById('source-total').textContent = tagged + ' tagged';
+    const srcMax = Math.max(1, ...SOURCE_KEYS.map(k => sourceCounts[k]));
+    const sortedSources = SOURCE_KEYS.slice().sort((a, b) => sourceCounts[b] - sourceCounts[a]);
+    const sourceEl = document.getElementById('source-chart');
+    if (!tagged) {
+      sourceEl.innerHTML = '<div class="empty" style="padding:16px 8px;">Tag applications with a source (LinkedIn, referral, etc.) to see what\'s working.</div>';
+    } else {
+      sourceEl.innerHTML = sortedSources.map(k => {
+        const c = sourceCounts[k];
+        const adv = sourceAdvanced[k];
+        const advRate = c ? Math.round((adv / c) * 100) : 0;
+        const pct = (c / srcMax) * 100;
+        return '<div>' +
+          '<div class="source-bar-row">' +
+            '<span class="name">' + escapeHtml(SOURCE_LABELS[k]) + '</span>' +
+            '<span class="track"><span class="fill ' + k + '" style="width:' + pct + '%"></span></span>' +
+            '<span class="num">' + c + '</span>' +
+          '</div>' +
+          (c ? '<div class="source-meta" style="margin: 2px 0 0 142px;">' + adv + '/' + c + ' advanced past Applied · ' + advRate + '%</div>' : '') +
+        '</div>';
+      }).join('');
+    }
+
+    // Top salaries list
+    const top = withSalary.slice().sort((a, b) => appSalary(b) - appSalary(a)).slice(0, 10);
+    document.getElementById('top-salary-count').textContent = top.length;
+    const list = document.getElementById('top-salary-list');
+    if (!top.length) {
+      list.innerHTML = '<div class="empty" style="padding:16px 8px;">No salaries logged yet. Add a salary range to an application to see it here.</div>';
+    } else {
+      list.innerHTML = top.map(a =>
+        '<div class="salary-item">' +
+          '<div>' +
+            '<div><b>' + escapeHtml(a.company) + '</b> · ' + escapeHtml(a.role) + '</div>' +
+            '<div class="meta">' + statusLabel(a.status) + (a.date ? ' · ' + a.date : '') + (a.location ? ' · ' + escapeHtml(a.location) : '') + '</div>' +
+          '</div>' +
+          '<div class="amt">' + appSalaryLabel(a) + '</div>' +
+        '</div>'
+      ).join('');
+    }
+  }
+
+  // Re-render insights after any state change if the view is currently visible
+  function refreshInsightsIfActive() {
+    const v = document.getElementById('view-insights');
+    if (v && v.classList.contains('active')) renderInsights();
+  }
+
+  // ---------- Wire up ----------
+  document.getElementById('clock-in-btn').addEventListener('click', clockIn);
+  document.getElementById('clock-out-btn').addEventListener('click', clockOut);
+
+  // View routing
+  const validViews = ['applications', 'timesheet', 'insights'];
+  function setView(name) {
+    if (!validViews.includes(name)) name = 'applications';
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+    document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.view === name));
+    if (history.replaceState) history.replaceState(null, '', '#' + name);
+    if (name === 'insights') renderInsights();
+  }
+  document.querySelectorAll('.nav-link').forEach(l => {
+    l.addEventListener('click', function (e) {
+      e.preventDefault();
+      setView(this.dataset.view);
+    });
+  });
+  window.addEventListener('hashchange', () => setView((location.hash || '#applications').slice(1)));
+  setView((location.hash || '#applications').slice(1));
+
+  document.getElementById('add-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const company = document.getElementById('f-company').value.trim();
+    const role = document.getElementById('f-role').value.trim();
+    if (!company || !role) return;
+    const salaryMinRaw = document.getElementById('f-salary-min').value;
+    const salaryMaxRaw = document.getElementById('f-salary-max').value;
+    const salaryMin = salaryMinRaw === '' ? null : Number(salaryMinRaw);
+    const salaryMax = salaryMaxRaw === '' ? null : Number(salaryMaxRaw);
+    const date = document.getElementById('f-date').value || new Date().toISOString().slice(0, 10);
+    const status = document.getElementById('f-status').value;
+    const source = document.getElementById('f-source').value;
+    const location = document.getElementById('f-location').value.trim();
+    const followUp = document.getElementById('f-follow-up').value;
+    const nextAction = document.getElementById('f-next-action').value.trim();
+    const notes = document.getElementById('f-notes').value.trim();
+    state.applications.unshift({
+      id: uid(), company, role, salaryMin, salaryMax, date, status,
+      source, location, followUp, nextAction, notes
+    });
+    save();
+    e.target.reset();
+    document.getElementById('f-status').value = 'applied';
+    document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('f-source').value = '';
+    renderStats();
+    renderApps();
+    refreshInsightsIfActive();
+  });
+
+  document.getElementById('apps-body').addEventListener('change', function (e) {
+    const sel = e.target.closest('.status-select');
+    if (!sel) return;
+    const id = sel.dataset.id;
+    const app = state.applications.find(a => a.id === id);
+    if (!app) return;
+    app.status = sel.value;
+    save();
+    renderStats();
+    renderApps();
+    refreshInsightsIfActive();
+  });
+
+  document.getElementById('apps-body').addEventListener('click', function (e) {
+    const del = e.target.closest('[data-del]');
+    if (del) {
+      const id = del.dataset.del;
+      if (!confirm('Delete this application?')) return;
+      state.applications = state.applications.filter(a => a.id !== id);
+      expanded.delete(id);
+      save();
+      renderStats();
+      renderApps();
+      refreshInsightsIfActive();
+      return;
+    }
+    const exp = e.target.closest('[data-expand]');
+    if (exp) {
+      const id = exp.dataset.expand;
+      if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+      renderApps();
+    }
+  });
+
+  // In-place edits for notes / next-action / follow-up
+  document.getElementById('apps-body').addEventListener('input', function (e) {
+    const el = e.target.closest('[data-edit]');
+    if (!el) return;
+    const id = el.dataset.id;
+    const field = el.dataset.edit;
+    const app = state.applications.find(a => a.id === id);
+    if (!app) return;
+    app[field] = el.value;
+    save();
+    // Don't re-render the whole table on every keystroke — that would steal focus.
+    // Just refresh the stats / insights so KPIs stay current.
+    refreshInsightsIfActive();
+  });
+  document.getElementById('apps-body').addEventListener('change', function (e) {
+    const el = e.target.closest('[data-edit="followUp"]');
+    if (!el) return;
+    // The follow-up cell color depends on status + due date — re-render that row.
+    renderApps();
+  });
+
+  document.getElementById('sessions-list').addEventListener('click', function (e) {
+    const del = e.target.closest('[data-session-del]');
+    if (!del) return;
+    const id = del.dataset.sessionDel;
+    if (!confirm('Remove this session?')) return;
+    state.sessions = state.sessions.filter(s => s.id !== id);
+    save();
+    renderSessions();
+    updateTotals();
+  });
+
+  // Comp goal — debounced save so we don't write per-keystroke
+  let goalSaveTimer = null;
+  document.getElementById('goal-input').addEventListener('input', function (e) {
+    const v = Number(e.target.value);
+    state.goalSalary = (isFinite(v) && v > 0) ? v : null;
+    clearTimeout(goalSaveTimer);
+    goalSaveTimer = setTimeout(save, 300);
+    renderInsights();
+    renderApps(); // goal chips on rows update too
+  });
+
+  document.getElementById('filter-row').addEventListener('click', function (e) {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    document.querySelectorAll('#filter-row .chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeFilter = chip.dataset.filter;
+    renderApps();
+  });
+
+  document.getElementById('export-btn').addEventListener('click', function () {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'applications-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('import-btn').addEventListener('click', function () {
+    document.getElementById('import-file').click();
+  });
+  document.getElementById('import-file').addEventListener('change', function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!confirm('Replace current data with imported file?')) return;
+        state.applications = (Array.isArray(data.applications) ? data.applications : []).map(migrateApp);
+        state.sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        state.activeSession = data.activeSession || null;
+        state.goalSalary = Number(data.goalSalary) > 0 ? Number(data.goalSalary) : null;
+        expanded.clear();
+        save();
+        renderStats();
+        renderApps();
+        renderSessions();
+        updateClockUI();
+        refreshInsightsIfActive();
+      } catch (err) {
+        alert('Invalid JSON file.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  // Default date in form to today
+  document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
+
+  // Initial render
+  updateClockUI();
+  renderStats();
+  renderApps();
+  renderSessions();
+  tickClock();
+  setInterval(tickClock, 1000);
+})();
+</script>
+</body>
+</html>
