@@ -2501,15 +2501,27 @@
       save();
       renderGmailResults();
       renderSyncBadge();
+      // Auto-refresh ALL linked rows. User shouldn't have to click anything.
+      const refreshed = silentReclassifyFromResults();
+      for (const ch of refreshed.statusChanges) {
+        showToast(
+          ch.company || 'Application updated',
+          ch.from + ' → ' + statusLabel(ch.to) + (ch.role ? '  ·  ' + ch.role : ''),
+          ch.to === 'rejected' ? 'error' : ch.to === 'offer' ? 'ok' : 'upgrade'
+        );
+      }
       const applied = maybeAutoApply(opts.silent);
       if (applied) {
-        const msg = 'Imported ' + applied.added + ' new · updated ' + applied.updated + ' existing.';
+        const msg = 'Imported ' + applied.added + ' new · updated ' + (applied.updated + refreshed.updated) + ' existing.';
         if (!opts.silent) setSyncStatus(msg, 'ok');
         else setSyncStatus('Auto-sync: ' + msg, 'ok');
       } else if (!opts.silent) {
-        setSyncStatus('Found ' + gmailLastResults.length + ' threads. Review and apply below.', 'ok');
+        const refreshNote = refreshed.updated ? ' · refreshed ' + refreshed.updated + ' existing row(s)' : '';
+        setSyncStatus('Found ' + gmailLastResults.length + ' threads' + refreshNote + '. Review and apply below.', 'ok');
       } else if (gmailSelected.size) {
         setSyncStatus('Auto-scan: ' + gmailSelected.size + ' new item(s) waiting for review.', 'ok');
+      } else if (refreshed.updated) {
+        setSyncStatus('Auto-sync: refreshed ' + refreshed.updated + ' existing row(s).', 'ok');
       }
     } catch (e) {
       console.error(e);
@@ -2907,6 +2919,62 @@
     return null;
   }
 
+  // Silently refresh every linked application against the freshest
+  // classifier output. Runs after every scan / fetch — no buttons.
+  // Returns { updated: n, statusChanges: [...] } so callers can toast.
+  // Only OVERWRITES company / source when the existing value looks
+  // junk (empty / platform name); only fills role / salary when
+  // they're missing. Status only upgrades, never downgrades.
+  function silentReclassifyFromResults() {
+    if (!gmailLastResults || !gmailLastResults.length) return { updated: 0, statusChanges: [] };
+    const byThreadId = new Map();
+    for (const r of gmailLastResults) byThreadId.set(r.threadId, r.parsed);
+    const platformSources = new Set(['linkedin', 'indeed', 'ziprecruiter', 'company']);
+    let updated = 0;
+    const statusChanges = [];
+    for (const tid of Object.keys(state.gmail.threadToAppId || {})) {
+      const appId = state.gmail.threadToAppId[tid];
+      const app = state.applications.find(a => a.id === appId);
+      if (!app) continue;
+      const p = byThreadId.get(tid);
+      if (!p) continue;
+      let touched = false;
+
+      if (p.company && (!app.company || isPlatformCompanyName(app.company))
+          && app.company !== p.company) {
+        app.company = p.company; touched = true;
+      }
+      if (p.role && !app.role && app.role !== p.role) {
+        app.role = p.role; touched = true;
+      }
+      const sourceUpgradable = !app.source || app.source === 'other' ||
+        (app.source === 'recruiter' && platformSources.has(p.source));
+      if (p.source && sourceUpgradable && app.source !== p.source) {
+        app.source = p.source; touched = true;
+      }
+      if (app.salaryMin == null && p.salaryMin != null) {
+        app.salaryMin = p.salaryMin; touched = true;
+      }
+      if (app.salaryMax == null && p.salaryMax != null) {
+        app.salaryMax = p.salaryMax; touched = true;
+      }
+      if (shouldUpgradeStatus(app.status, p.status)) {
+        const oldLabel = statusLabel(app.status);
+        app.status = p.status;
+        statusChanges.push({ company: app.company, role: app.role, from: oldLabel, to: p.status });
+        touched = true;
+      }
+      if (touched) updated++;
+    }
+    if (updated) {
+      save();
+      renderStats();
+      renderApps();
+      refreshInsightsIfActive();
+    }
+    return { updated, statusChanges };
+  }
+
   function applySelectedGmailItems(opts) {
     opts = opts || {};
     if (!gmailSelected.size) return { added: 0, updated: 0, deduped: 0 };
@@ -3107,14 +3175,24 @@
       save();
       renderGmailResults();
       renderSyncBadge();
+      // Auto-refresh ALL linked rows against the freshest classifier
+      // output, every fetch. User no longer has to click Re-classify.
+      const refreshed = silentReclassifyFromResults();
+      for (const ch of refreshed.statusChanges) {
+        showToast(
+          ch.company || 'Application updated',
+          ch.from + ' → ' + statusLabel(ch.to) + (ch.role ? '  ·  ' + ch.role : ''),
+          ch.to === 'rejected' ? 'error' : ch.to === 'offer' ? 'ok' : 'upgrade'
+        );
+      }
       const applied = maybeAutoApply(opts.silent);
       const ts = data.scannedAt ? new Date(data.scannedAt).toLocaleString() : 'now';
       if (applied) {
-        setBgStatus('Server scanned ' + ts + ' · imported ' + applied.added + ' new · updated ' + applied.updated, 'ok');
+        setBgStatus('Server scanned ' + ts + ' · imported ' + applied.added + ' new · updated ' + (applied.updated + refreshed.updated), 'ok');
       } else {
-        const msg = 'Got ' + gmailLastResults.length + ' threads · server scanned ' + ts +
-                    (gmailSelected.size ? ' · ' + gmailSelected.size + ' awaiting review' : '');
-        setBgStatus(msg, 'ok');
+        const refreshedNote = refreshed.updated ? ' · refreshed ' + refreshed.updated + ' row' + (refreshed.updated === 1 ? '' : 's') : '';
+        const reviewNote = gmailSelected.size ? ' · ' + gmailSelected.size + ' awaiting review' : '';
+        setBgStatus('Got ' + gmailLastResults.length + ' threads · server scanned ' + ts + refreshedNote + reviewNote, 'ok');
       }
     } catch (e) {
       console.error(e);
