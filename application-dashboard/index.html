@@ -348,19 +348,69 @@
   .icon-btn:hover { color: var(--text); border-color: var(--text); }
   .icon-btn.danger:hover { color: var(--red); border-color: var(--red); }
 
-  /* Sessions list — table-style rows for the dashboard view */
-  .sessions { display: flex; flex-direction: column; gap: 8px; }
-  .session-row {
-    padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--panel-2); font-size: 14px;
-    display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 16px; align-items: center;
+  /* Sessions list — gaming-app row, three-zone grid (meta | duration | delete) */
+  .sessions { display: flex; flex-direction: column; gap: 6px; }
+  .session-day-header {
+    font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .14em; font-weight: 700;
+    padding: 14px 4px 4px;
   }
-  @media (max-width: 700px) { .session-row { grid-template-columns: 1fr 1fr; } }
-  .session-row.live { border-color: rgba(63,207,142,.5); background: rgba(63,207,142,.07); }
-  .session-row .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-  .session-row .v { font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .session-row .v.duration { font-weight: 700; }
-  .session-row .live-tag { color: var(--green); font-weight: 700; font-size: 12px; }
+  .session-row {
+    padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    display: grid; grid-template-columns: 1fr auto auto; gap: 10px 16px;
+    align-items: center;
+    transition: border-color .15s ease;
+  }
+  .session-row:hover { border-color: var(--border-strong); }
+  .session-row.live {
+    border-color: rgba(94,229,255,.4);
+    box-shadow: var(--glow-cyan);
+    background:
+      radial-gradient(ellipse 70% 100% at 0% 50%, rgba(94,229,255,.08), transparent 70%),
+      linear-gradient(180deg, var(--panel-2), var(--panel));
+  }
+  .session-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .session-headline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .session-name {
+    font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -.01em;
+  }
+  .session-name.muted { color: var(--muted); font-weight: 500; font-style: italic; font-size: 12px; }
+  .session-times {
+    font-size: 11px; color: var(--muted); letter-spacing: .04em;
+    font-variant-numeric: tabular-nums;
+  }
+  .session-duration {
+    font-size: 18px; font-weight: 800; color: var(--accent);
+    font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  }
+  .session-row.live .session-duration { color: var(--green); }
+  .live-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(74,222,128,.12); color: var(--green);
+    font-size: 10px; font-weight: 800; padding: 3px 7px; border-radius: 4px;
+    letter-spacing: .12em; text-transform: uppercase;
+    border: 1px solid rgba(74,222,128,.35);
+    box-shadow: 0 0 8px rgba(74,222,128,.18);
+  }
+  .live-tag .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+    animation: pulse 1.5s infinite;
+  }
+
+  /* Per-worker totals strip */
+  .worker-totals {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 0 0 12px 0;
+  }
+  .worker-totals .pill {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    padding: 6px 10px; background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 999px;
+    font-size: 12px;
+  }
+  .worker-totals .pill .name { color: var(--text); font-weight: 700; }
+  .worker-totals .pill .hrs  { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
 
 
   /* Insights view */
@@ -589,7 +639,6 @@
     font-size: 13px; padding: 8px 10px; max-width: 320px;
   }
   .session-name-row input:disabled { opacity: .6; cursor: not-allowed; }
-  .session-row .session-name { font-size: 12px; color: var(--accent); font-weight: 600; }
 
   /* End of Day report */
   .eod-grid {
@@ -1344,23 +1393,82 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // Day-grouping helper: today / yesterday / older as Mon Apr 28
+  function formatDayHeader(date) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yest  = new Date(today.getTime() - 86400000);
+    const d = new Date(date); d.setHours(0, 0, 0, 0);
+    if (d.getTime() === today.getTime()) return 'Today';
+    if (d.getTime() === yest.getTime())  return 'Yesterday';
+    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  // Total time per worker for the past 7 days. Includes the active
+  // session's contribution. Returns a sorted array of {name, ms}.
+  function computeWorkerTotals() {
+    const horizon = Date.now() - 7 * 86400000;
+    const totals = new Map();
+    for (const s of state.sessions) {
+      if (s.end < horizon) continue;
+      const name = (s.name || '').trim() || 'Unassigned';
+      const ms = Math.max(0, Math.min(s.end, Date.now()) - Math.max(s.start, horizon));
+      totals.set(name, (totals.get(name) || 0) + ms);
+    }
+    if (state.activeSession) {
+      const name = (state.activeSession.name || '').trim() || 'Unassigned';
+      const ms = Date.now() - Math.max(state.activeSession.start, horizon);
+      totals.set(name, (totals.get(name) || 0) + ms);
+    }
+    return Array.from(totals.entries())
+      .map(([name, ms]) => ({ name, ms }))
+      .sort((a, b) => b.ms - a.ms);
+  }
+
+  function formatHrsMins(ms) {
+    const totalMins = Math.floor(ms / 60000);
+    const hh = Math.floor(totalMins / 60);
+    const mm = totalMins % 60;
+    return hh + 'h ' + (mm < 10 ? '0' : '') + mm + 'm';
+  }
+
   function renderSessions() {
     const list = document.getElementById('sessions-list');
     list.innerHTML = '';
-    const all = state.sessions.slice(0, 20);
-    document.getElementById('sessions-count').textContent = state.sessions.length + (state.activeSession ? 1 : 0);
+    const all = state.sessions.slice(0, 30);
+    document.getElementById('sessions-count').textContent =
+      state.sessions.length + (state.activeSession ? 1 : 0);
 
+    // Per-worker totals for the past 7 days (skip if there's no real
+    // worker data yet — empty state still gets the helpful note).
+    const totals = computeWorkerTotals();
+    if (totals.length) {
+      const strip = document.createElement('div');
+      strip.className = 'worker-totals';
+      strip.innerHTML = totals.slice(0, 6).map(t =>
+        '<span class="pill"><span class="name">' + escapeHtml(t.name) + '</span>' +
+        '<span class="hrs">' + formatHrsMins(t.ms) + '</span></span>'
+      ).join('');
+      list.appendChild(strip);
+    }
+
+    // Live session card on top
     if (state.activeSession) {
       const start = new Date(state.activeSession.start);
       const div = document.createElement('div');
       div.className = 'session-row live';
+      const name = (state.activeSession.name || '').trim();
       div.innerHTML =
-        '<div class="top-line">' +
-          '<span class="live-tag">● Live</span>' +
-          (state.activeSession.name ? '<span class="session-name">' + escapeHtml(state.activeSession.name) + '</span>' : '') +
-          '<span class="duration">' + formatDuration(Date.now() - state.activeSession.start) + '</span>' +
+        '<div class="session-meta">' +
+          '<div class="session-headline">' +
+            '<span class="live-tag"><span class="dot"></span>Live</span>' +
+            (name
+              ? '<span class="session-name">' + escapeHtml(name) + '</span>'
+              : '<span class="session-name muted">No worker assigned</span>') +
+          '</div>' +
+          '<div class="session-times">Started ' + formatTime(start) + ' · ' + formatDayHeader(start) + '</div>' +
         '</div>' +
-        '<div class="times">In ' + formatTime(start) + ' · ' + start.toLocaleDateString() + '</div>';
+        '<div class="session-duration">' + formatDuration(Date.now() - state.activeSession.start) + '</div>' +
+        '<span></span>';
       list.appendChild(div);
     }
 
@@ -1373,21 +1481,36 @@
       return;
     }
 
+    // Group completed sessions by day with a header row.
+    let lastDayKey = null;
     for (const s of all) {
       const start = new Date(s.start), end = new Date(s.end);
+      const dayKey = start.toDateString();
+      if (dayKey !== lastDayKey) {
+        const h = document.createElement('div');
+        h.className = 'session-day-header';
+        h.textContent = formatDayHeader(start);
+        list.appendChild(h);
+        lastDayKey = dayKey;
+      }
       const sameDay = start.toDateString() === end.toDateString();
+      const name = (s.name || '').trim();
       const div = document.createElement('div');
       div.className = 'session-row';
       div.innerHTML =
-        '<div class="top-line">' +
-          '<span class="times">' + start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + '</span>' +
-          (s.name ? '<span class="session-name">' + escapeHtml(s.name) + '</span>' : '') +
-          '<span class="duration">' + formatDuration(s.end - s.start) + '</span>' +
+        '<div class="session-meta">' +
+          '<div class="session-headline">' +
+            (name
+              ? '<span class="session-name">' + escapeHtml(name) + '</span>'
+              : '<span class="session-name muted">No worker assigned</span>') +
+          '</div>' +
+          '<div class="session-times">' +
+            formatTime(start) + ' → ' +
+            (sameDay ? formatTime(end) : end.toLocaleString()) +
+          '</div>' +
         '</div>' +
-        '<div class="top-line">' +
-          '<span class="times">' + formatTime(start) + ' → ' + (sameDay ? formatTime(end) : end.toLocaleString()) + '</span>' +
-          '<button class="icon-btn danger" data-session-del="' + s.id + '">×</button>' +
-        '</div>';
+        '<div class="session-duration">' + formatDuration(s.end - s.start) + '</div>' +
+        '<button class="icon-btn danger" data-session-del="' + s.id + '" title="Delete session">×</button>';
       list.appendChild(div);
     }
   }
