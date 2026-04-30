@@ -358,6 +358,8 @@
     background: var(--panel-2);
   }
   @media (max-width: 800px) { .details-grid { grid-template-columns: 1fr; } }
+  .details-grid .details-notes { grid-column: 1 / -1; }
+  .details-grid select { font-size: 13px; padding: 8px 10px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
   .details-grid label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; display: flex; flex-direction: column; gap: 4px; }
   .details-grid input, .details-grid textarea { font-size: 13px; padding: 8px 10px; }
   .details-grid textarea { min-height: 64px; resize: vertical; font-family: inherit; }
@@ -425,6 +427,8 @@
 
   /* Compact secondary cell */
   .cell-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .company-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .company-line .source-tag { font-size: 10px; padding: 1px 7px; }
 
   /* Gmail Sync */
   .setup-note {
@@ -1105,10 +1109,14 @@
           '</button>' +
         '</td>' +
         '<td>' +
-          '<b>' + escapeHtml(a.company) + '</b>' +
-          '<div class="cell-meta">' + escapeHtml(a.role) +
-            (a.location ? ' · ' + escapeHtml(a.location) : '') +
-            (a.date ? ' · applied ' + a.date : '') +
+          '<div class="company-line">' +
+            '<b>' + escapeHtml(a.company) + '</b>' +
+            (a.source ? ' ' + sourceTag(a.source) : '') +
+          '</div>' +
+          '<div class="cell-meta">' +
+            (a.role ? escapeHtml(a.role) : '') +
+            (a.location ? (a.role ? ' · ' : '') + escapeHtml(a.location) : '') +
+            (a.date ? ((a.role || a.location) ? ' · ' : '') + 'applied ' + a.date : '') +
           '</div>' +
         '</td>' +
         '<td>' + sourceTag(a.source) + '</td>' +
@@ -1128,17 +1136,39 @@
       if (isOpen) {
         const dr = document.createElement('tr');
         dr.className = 'details-row';
+        const sourceOptions = ['', ...SOURCE_KEYS].map(k =>
+          '<option value="' + k + '"' + (a.source === k ? ' selected' : '') + '>' +
+          (k ? SOURCE_LABELS[k] : '— pick a channel —') + '</option>'
+        ).join('');
         dr.innerHTML =
           '<td colspan="7">' +
             '<div class="details-grid">' +
-              '<label>Notes' +
-                '<textarea data-edit="notes" data-id="' + a.id + '" placeholder="Anything worth remembering">' + escapeHtml(a.notes || '') + '</textarea>' +
+              '<label>Company' +
+                '<input type="text" data-edit="company" data-id="' + a.id + '" value="' + escapeHtml(a.company || '') + '" />' +
+              '</label>' +
+              '<label>Role / Title' +
+                '<input type="text" data-edit="role" data-id="' + a.id + '" value="' + escapeHtml(a.role || '') + '" />' +
+              '</label>' +
+              '<label>Source' +
+                '<select data-edit="source" data-id="' + a.id + '">' + sourceOptions + '</select>' +
+              '</label>' +
+              '<label>Location' +
+                '<input type="text" data-edit="location" data-id="' + a.id + '" value="' + escapeHtml(a.location || '') + '" />' +
+              '</label>' +
+              '<label>Salary min ($)' +
+                '<input type="number" min="0" step="1000" data-edit="salaryMin" data-id="' + a.id + '" value="' + (a.salaryMin != null ? a.salaryMin : '') + '" />' +
+              '</label>' +
+              '<label>Salary max ($)' +
+                '<input type="number" min="0" step="1000" data-edit="salaryMax" data-id="' + a.id + '" value="' + (a.salaryMax != null ? a.salaryMax : '') + '" />' +
               '</label>' +
               '<label>Next action' +
                 '<input type="text" data-edit="nextAction" data-id="' + a.id + '" placeholder="e.g. Email recruiter" value="' + escapeHtml(a.nextAction || '') + '" />' +
               '</label>' +
               '<label>Follow up by' +
                 '<input type="date" data-edit="followUp" data-id="' + a.id + '" value="' + escapeHtml(a.followUp || '') + '" />' +
+              '</label>' +
+              '<label class="details-notes">Notes' +
+                '<textarea data-edit="notes" data-id="' + a.id + '" placeholder="Anything worth remembering">' + escapeHtml(a.notes || '') + '</textarea>' +
               '</label>' +
             '</div>' +
           '</td>';
@@ -1543,25 +1573,47 @@
     }
   });
 
-  // In-place edits for notes / next-action / follow-up
+  // In-place edits for any field exposed in the expanded row.
+  // - Text/textarea/number → 'input' event, save on every keystroke.
+  // - <select> (source) → 'change' event below.
   document.getElementById('apps-body').addEventListener('input', function (e) {
     const el = e.target.closest('[data-edit]');
     if (!el) return;
+    if (el.tagName === 'SELECT') return;  // handled by 'change' below
     const id = el.dataset.id;
     const field = el.dataset.edit;
     const app = state.applications.find(a => a.id === id);
     if (!app) return;
-    app[field] = el.value;
+    if (field === 'salaryMin' || field === 'salaryMax') {
+      const n = Number(el.value);
+      app[field] = (el.value === '' || !isFinite(n) || n < 0) ? null : n;
+    } else {
+      app[field] = el.value;
+    }
     save();
     // Don't re-render the whole table on every keystroke — that would steal focus.
     // Just refresh the stats / insights so KPIs stay current.
     refreshInsightsIfActive();
   });
   document.getElementById('apps-body').addEventListener('change', function (e) {
-    const el = e.target.closest('[data-edit="followUp"]');
+    const el = e.target.closest('[data-edit]');
     if (!el) return;
-    // The follow-up cell color depends on status + due date — re-render that row.
-    renderApps();
+    const id = el.dataset.id;
+    const field = el.dataset.edit;
+    const app = state.applications.find(a => a.id === id);
+    if (!app) return;
+    if (el.tagName === 'SELECT') {
+      app[field] = el.value;
+      save();
+    }
+    // Fields that affect the visible row need a re-render so the
+    // collapsed row reflects the edit.
+    if (field === 'followUp' || field === 'source' || field === 'company' ||
+        field === 'role' || field === 'location' || field === 'salaryMin' ||
+        field === 'salaryMax') {
+      renderApps();
+      refreshInsightsIfActive();
+    }
   });
 
   document.getElementById('sessions-list').addEventListener('click', function (e) {
@@ -1951,13 +2003,20 @@
     const domain = email.includes('@') ? email.split('@')[1] : '';
     const baseDomain = domain.replace(/^.*?([^.]+\.[a-z]+)$/, '$1');
 
-    const isLinkedIn = /(^|\.)linkedin\.com$/.test(domain);
-    const isAts      = /(^|\.)(greenhouse\.io|lever\.co|workable\.com|ashbyhq\.com|breezy\.hr|smartrecruiters\.com|icims\.com|myworkday(jobs)?\.com|jobvite\.com|bamboohr\.com|teamtailor\.com)$/.test(domain);
-    const isJobBoard = /(^|\.)(indeed\.com|ziprecruiter\.com|glassdoor\.com|monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain);
-    const isPlatform = isLinkedIn || isAts || isJobBoard;
+    // Detect platform from BOTH the email domain and the From-display
+    // name. Some platforms send via white-labeled domains (e.g.
+    // ZipRecruiter's auto-apply emails come from senders like "Phil
+    // @ ZipRecruiter <noreply@something.com>"), so the display-name
+    // signal is just as important as the domain.
+    const fromLc         = from.toLowerCase();
+    const isLinkedIn     = /(^|\.)linkedin\.com$/.test(domain) || /\blinked\s*in\b/.test(fromLc);
+    const isIndeed       = /(^|\.)indeed\.com$/.test(domain) || /@\s*indeed\b/.test(fromLc);
+    const isZipRecruiter = /(^|\.)ziprecruiter\.com$/.test(domain) || /@\s*zip\s*recruiter\b/.test(fromLc) || /\bziprecruiter\b/.test(fromLc);
+    const isGlassdoor    = /(^|\.)glassdoor\.com$/.test(domain) || /@\s*glass\s*door\b/.test(fromLc);
+    const isAts          = /(^|\.)(greenhouse\.io|lever\.co|workable\.com|ashbyhq\.com|breezy\.hr|smartrecruiters\.com|icims\.com|myworkday(jobs)?\.com|jobvite\.com|bamboohr\.com|teamtailor\.com)$/.test(domain);
+    const isJobBoard     = isIndeed || isZipRecruiter || isGlassdoor || /(^|\.)(monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain);
+    const isPlatform     = isLinkedIn || isAts || isJobBoard;
 
-    const isIndeed       = /(^|\.)indeed\.com$/.test(domain);
-    const isZipRecruiter = /(^|\.)ziprecruiter\.com$/.test(domain);
     let source = 'other';
     if (isLinkedIn)          source = 'linkedin';
     else if (isIndeed)       source = 'indeed';
@@ -2137,12 +2196,33 @@
 
   // Apply currently-selected Gmail results to local state.
   // `opts.silent` suppresses the status toast (used by auto-apply).
-  // Companies that older classifier versions saved by mistake — these
-  // should be overwritten when a better hint comes in from Apps Script.
-  // Also catches "(unknown)" / "Gmail" / "Google" so Clean-up can find them.
-  const PLATFORM_COMPANY_RE = /^(indeed(\s+apply)?|linkedin|ziprecruiter|glassdoor|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smartrecruiters|icims|workday|jobvite|bamboohr|teamtailor|notifications|jobs|careers|no.?reply|the team|apply|gmail|google|google\s+(?:play|workspace|account|cloud|notifications)|\(unknown\))$/i;
-  function isPlatformCompanyName(s) { return !!s && PLATFORM_COMPANY_RE.test(String(s).trim()); }
-  function isJunkCompany(s) { return !s || isPlatformCompanyName(s); }
+  // Companies that older classifier versions saved by mistake. We consider
+  // a string "junk" when the *entire* identifier is just a platform name
+  // (optionally followed by platform-y suffix words like "Apply", "Jobs",
+  // ".com", "Inc"). The point is: if everything in the company field
+  // could plausibly be the platform itself, the real employer wasn't
+  // extracted.
+  const PLATFORM_HEAD_RE = /^(?:indeed|linked\s*in|zip\s*recruiter|glass\s*door|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smart\s*recruiters|icims|workday|jobvite|bamboo\s*hr|team\s*tailor|gmail|google|notifications|jobs|careers|no.?reply|apply|the\s+team)\b/i;
+  const PLATFORM_TAIL_RE = /^(?:[.,]?\s*(?:apply|jobs|hiring|recruiting|careers|team|inc\.?|llc\.?|ltd\.?|corp\.?|com|net|io|co|workspace|account|cloud|play|notifications|hire|hires|talent))*\s*$/i;
+  function isPlatformCompanyName(s) {
+    if (!s) return false;
+    s = String(s).trim();
+    if (s === '(unknown)') return true;
+    const headMatch = s.match(PLATFORM_HEAD_RE);
+    if (!headMatch) return false;
+    const tail = s.slice(headMatch[0].length);
+    return PLATFORM_TAIL_RE.test(tail);
+  }
+  // "Phil @ ZipRecruiter", "Sarah @ Indeed" — bot personas job boards
+  // attach to recommendation emails. The "@ <Platform>" tail makes it
+  // unambiguous we never extracted a real employer.
+  const BOT_PERSONA_RE = /@\s*(zip\s*recruiter|indeed|linked\s*in|glass\s*door|monster|dice|otta|wellfound)\b/i;
+  function isJunkCompany(s) {
+    if (!s) return true;
+    if (isPlatformCompanyName(s)) return true;
+    if (BOT_PERSONA_RE.test(String(s).trim())) return true;
+    return false;
+  }
 
   function applySelectedGmailItems(opts) {
     opts = opts || {};
@@ -2435,8 +2515,16 @@
           if (app.company !== p.company) { app.company = p.company; fixedCompany++; touched = true; }
         }
         if (p.role && !app.role) { app.role = p.role; filledRole++; touched = true; }
-        if (p.source && (!app.source || app.source === 'other')) {
-          if (app.source !== p.source) { app.source = p.source; touched = true; }
+        // Source upgrade: empty / 'other' / 'recruiter' all yield to a
+        // more specific platform (linkedin/indeed/ziprecruiter/company).
+        // This fixes existing rows tagged "Recruiter" because of "Phil"
+        // matching the recruiter heuristic.
+        const platformSources = new Set(['linkedin', 'indeed', 'ziprecruiter', 'company']);
+        const sourceUpgradable = !app.source || app.source === 'other' ||
+          (app.source === 'recruiter' && platformSources.has(p.source));
+        if (p.source && sourceUpgradable && app.source !== p.source) {
+          app.source = p.source;
+          touched = true;
         }
         if (app.salaryMin == null && p.salaryMin != null) { app.salaryMin = p.salaryMin; filledSalary++; touched = true; }
         if (app.salaryMax == null && p.salaryMax != null) { app.salaryMax = p.salaryMax; touched = true; }
