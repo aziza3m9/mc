@@ -3223,7 +3223,10 @@
     }
   });
 
-  document.getElementById('bg-fetch-btn').addEventListener('click', () => fetchFromAppsScript({ silent: false }));
+  // Manual fetch forces a fresh server-side rescan (rather than reading
+  // ScriptProperties cache). This guarantees the latest classifier /
+  // salary patterns run on the email bodies. Slower but reliable.
+  document.getElementById('bg-fetch-btn').addEventListener('click', () => fetchFromAppsScript({ silent: false, rescan: true }));
 
   // Clean up imported rows where the classifier never extracted a
   // real company — "(unknown)", "Gmail", "Indeed Apply", etc.
