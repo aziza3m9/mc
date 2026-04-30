@@ -2154,7 +2154,16 @@
     const tail = s.slice(headMatch[0].length);
     return PLATFORM_TAIL_RE.test(tail);
   }
-  function isJunkCompany(s) { return !s || isPlatformCompanyName(s); }
+  // "Phil @ ZipRecruiter", "Sarah @ Indeed" — bot personas job boards
+  // attach to recommendation emails. The "@ <Platform>" tail makes it
+  // unambiguous we never extracted a real employer.
+  const BOT_PERSONA_RE = /@\s*(zip\s*recruiter|indeed|linked\s*in|glass\s*door|monster|dice|otta|wellfound)\b/i;
+  function isJunkCompany(s) {
+    if (!s) return true;
+    if (isPlatformCompanyName(s)) return true;
+    if (BOT_PERSONA_RE.test(String(s).trim())) return true;
+    return false;
+  }
 
   function applySelectedGmailItems(opts) {
     opts = opts || {};

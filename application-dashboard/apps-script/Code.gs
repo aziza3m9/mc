@@ -41,13 +41,21 @@
  *   but the secret check rejects everything else.
  */
 
+// Positive: anchor on phrases used in actual application-lifecycle emails.
+// Negative (-"…"): exclude job-recommendation / digest noise that the
+// positive set would otherwise let through.
 const SCAN_QUERY =
-  '"thank you for applying" OR "application received" OR "we received your application" ' +
-  'OR "thank you for your interest" OR "your application" ' +
-  'OR "interview" OR "phone screen" OR "online assessment" OR "coding challenge" OR "take-home" OR "take home" ' +
-  'OR "unfortunately" OR "not selected" OR "move forward with other" OR "decided not to" ' +
-  'OR "not moving forward" OR "no longer considering" ' +
-  'OR "extend an offer" OR "pleased to extend" OR "offer of employment"';
+  '(' +
+    '"thank you for applying" OR "application received" OR "we received your application" ' +
+    'OR "thank you for your interest" ' +
+    'OR "interview" OR "phone screen" OR "online assessment" OR "coding challenge" OR "take-home" OR "take home" ' +
+    'OR "unfortunately" OR "not selected" OR "move forward with other" OR "decided not to" ' +
+    'OR "not moving forward" OR "no longer considering" ' +
+    'OR "extend an offer" OR "pleased to extend" OR "offer of employment"' +
+  ') ' +
+  '-"new jobs" -"jobs for you" -"jobs you might" -"jobs we found" ' +
+  '-"recommended for you" -"recommended jobs" -"we found jobs" ' +
+  '-"job recommendations" -"jobs matching" -"daily digest" -"job alert"';
 
 const WINDOW_DAYS = 90;
 const MAX_THREADS = 200;
@@ -143,6 +151,16 @@ const PLATFORM_NAME_RE = /^(indeed|linkedin|ziprecruiter|glassdoor|monster|dice|
 // notifications from Google itself, not job applications, even if their
 // bodies happen to contain words like "your application".
 const NOISE_SENDER_RE = /@(google\.com|googlemail\.com|accounts\.google\.com|googleplay\.com|firebase\.google\.com|googleusercontent\.com)/i;
+
+// Bot/notification personas that send job RECOMMENDATIONS, not
+// application confirmations. ZipRecruiter's "Phil", LinkedIn's "Job
+// alerts", etc. — there's no real applied-to event behind these emails.
+const NOTIFICATION_BOT_FROM_RE = /(?:[A-Z][a-z]+|the\s+team)\s*@\s*(?:zip\s*recruiter|indeed|linked\s*in|glass\s*door|monster|dice)/i;
+
+// Subject patterns that indicate "we recommend these jobs" rather than
+// "you applied to this job". Belt-and-braces alongside the SCAN_QUERY
+// negative terms in case Gmail search doesn't strip them all.
+const RECOMMENDATION_SUBJECT_RE = /(new jobs|jobs (?:for you|matching|near|in)|recommended (?:for you|jobs)|we found .{0,40}(?:jobs|positions|matches)|you (?:might|may) (?:be interested|like)|job (?:alert|recommendations|matches)|daily digest|jobs you might)/i;
 
 function _isPlatformWord(s) {
   return !s || PLATFORM_NAME_RE.test(s.trim());
@@ -265,8 +283,12 @@ function scanInbox() {
       // Skip Google/Gmail-system senders — they aren't job applications
       // even if their bodies happen to match a keyword.
       if (NOISE_SENDER_RE.test(from)) continue;
+      // Skip job-board notification bots ("Phil @ ZipRecruiter", etc.)
+      if (NOTIFICATION_BOT_FROM_RE.test(from)) continue;
       const body = (last.getPlainBody() || '').replace(/\s+/g, ' ').trim();
       const subject = last.getSubject() || '';
+      // Skip job-recommendation digests
+      if (RECOMMENDATION_SUBJECT_RE.test(subject)) continue;
       out.push({
         threadId: thread.getId(),
         messageId: last.getId(),
