@@ -358,6 +358,8 @@
     background: var(--panel-2);
   }
   @media (max-width: 800px) { .details-grid { grid-template-columns: 1fr; } }
+  .details-grid .details-notes { grid-column: 1 / -1; }
+  .details-grid select { font-size: 13px; padding: 8px 10px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
   .details-grid label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; display: flex; flex-direction: column; gap: 4px; }
   .details-grid input, .details-grid textarea { font-size: 13px; padding: 8px 10px; }
   .details-grid textarea { min-height: 64px; resize: vertical; font-family: inherit; }
@@ -1128,17 +1130,39 @@
       if (isOpen) {
         const dr = document.createElement('tr');
         dr.className = 'details-row';
+        const sourceOptions = ['', ...SOURCE_KEYS].map(k =>
+          '<option value="' + k + '"' + (a.source === k ? ' selected' : '') + '>' +
+          (k ? SOURCE_LABELS[k] : '— pick a channel —') + '</option>'
+        ).join('');
         dr.innerHTML =
           '<td colspan="7">' +
             '<div class="details-grid">' +
-              '<label>Notes' +
-                '<textarea data-edit="notes" data-id="' + a.id + '" placeholder="Anything worth remembering">' + escapeHtml(a.notes || '') + '</textarea>' +
+              '<label>Company' +
+                '<input type="text" data-edit="company" data-id="' + a.id + '" value="' + escapeHtml(a.company || '') + '" />' +
+              '</label>' +
+              '<label>Role / Title' +
+                '<input type="text" data-edit="role" data-id="' + a.id + '" value="' + escapeHtml(a.role || '') + '" />' +
+              '</label>' +
+              '<label>Source' +
+                '<select data-edit="source" data-id="' + a.id + '">' + sourceOptions + '</select>' +
+              '</label>' +
+              '<label>Location' +
+                '<input type="text" data-edit="location" data-id="' + a.id + '" value="' + escapeHtml(a.location || '') + '" />' +
+              '</label>' +
+              '<label>Salary min ($)' +
+                '<input type="number" min="0" step="1000" data-edit="salaryMin" data-id="' + a.id + '" value="' + (a.salaryMin != null ? a.salaryMin : '') + '" />' +
+              '</label>' +
+              '<label>Salary max ($)' +
+                '<input type="number" min="0" step="1000" data-edit="salaryMax" data-id="' + a.id + '" value="' + (a.salaryMax != null ? a.salaryMax : '') + '" />' +
               '</label>' +
               '<label>Next action' +
                 '<input type="text" data-edit="nextAction" data-id="' + a.id + '" placeholder="e.g. Email recruiter" value="' + escapeHtml(a.nextAction || '') + '" />' +
               '</label>' +
               '<label>Follow up by' +
                 '<input type="date" data-edit="followUp" data-id="' + a.id + '" value="' + escapeHtml(a.followUp || '') + '" />' +
+              '</label>' +
+              '<label class="details-notes">Notes' +
+                '<textarea data-edit="notes" data-id="' + a.id + '" placeholder="Anything worth remembering">' + escapeHtml(a.notes || '') + '</textarea>' +
               '</label>' +
             '</div>' +
           '</td>';
@@ -1543,25 +1567,47 @@
     }
   });
 
-  // In-place edits for notes / next-action / follow-up
+  // In-place edits for any field exposed in the expanded row.
+  // - Text/textarea/number → 'input' event, save on every keystroke.
+  // - <select> (source) → 'change' event below.
   document.getElementById('apps-body').addEventListener('input', function (e) {
     const el = e.target.closest('[data-edit]');
     if (!el) return;
+    if (el.tagName === 'SELECT') return;  // handled by 'change' below
     const id = el.dataset.id;
     const field = el.dataset.edit;
     const app = state.applications.find(a => a.id === id);
     if (!app) return;
-    app[field] = el.value;
+    if (field === 'salaryMin' || field === 'salaryMax') {
+      const n = Number(el.value);
+      app[field] = (el.value === '' || !isFinite(n) || n < 0) ? null : n;
+    } else {
+      app[field] = el.value;
+    }
     save();
     // Don't re-render the whole table on every keystroke — that would steal focus.
     // Just refresh the stats / insights so KPIs stay current.
     refreshInsightsIfActive();
   });
   document.getElementById('apps-body').addEventListener('change', function (e) {
-    const el = e.target.closest('[data-edit="followUp"]');
+    const el = e.target.closest('[data-edit]');
     if (!el) return;
-    // The follow-up cell color depends on status + due date — re-render that row.
-    renderApps();
+    const id = el.dataset.id;
+    const field = el.dataset.edit;
+    const app = state.applications.find(a => a.id === id);
+    if (!app) return;
+    if (el.tagName === 'SELECT') {
+      app[field] = el.value;
+      save();
+    }
+    // Fields that affect the visible row need a re-render so the
+    // collapsed row reflects the edit.
+    if (field === 'followUp' || field === 'source' || field === 'company' ||
+        field === 'role' || field === 'location' || field === 'salaryMin' ||
+        field === 'salaryMax') {
+      renderApps();
+      refreshInsightsIfActive();
+    }
   });
 
   document.getElementById('sessions-list').addEventListener('click', function (e) {
