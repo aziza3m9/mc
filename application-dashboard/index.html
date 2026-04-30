@@ -1068,12 +1068,25 @@
       <header class="app-head">
         <div>
           <h1>Insights</h1>
-          <div class="subtitle">Salary trends and pipeline analytics across your applications</div>
+          <div class="subtitle">Pipeline analytics and conversion funnel across your applications</div>
         </div>
       </header>
 
+      <section class="apps-range-bar">
+        <div class="cal-mode" role="tablist" id="insights-range">
+          <button class="cal-mode-btn"        data-insights-range="today"     role="tab">Today</button>
+          <button class="cal-mode-btn"        data-insights-range="yesterday" role="tab">Yesterday</button>
+          <button class="cal-mode-btn"        data-insights-range="2days"     role="tab">2 days ago</button>
+          <button class="cal-mode-btn"        data-insights-range="week"      role="tab">Last 7d</button>
+          <button class="cal-mode-btn"        data-insights-range="month"     role="tab">Last 30d</button>
+          <button class="cal-mode-btn active" data-insights-range="all"       role="tab">All time</button>
+        </div>
+        <input type="date" id="insights-date-jump" class="cal-jump" title="Jump to a specific date" />
+        <div class="apps-range-label" id="insights-range-label">—</div>
+      </section>
+
       <section class="panel" id="eod-panel">
-        <h2>End of Day Report <span class="count" id="eod-date">today</span></h2>
+        <h2>Activity Report <span class="count" id="eod-date">all time</span></h2>
         <div class="eod-grid">
           <div class="eod-cell"><div class="eod-num" id="eod-applied">0</div><div class="eod-lbl">applications submitted</div></div>
           <div class="eod-cell"><div class="eod-num" id="eod-interviews">0</div><div class="eod-lbl">interview &amp; assessment invites</div></div>
@@ -1526,8 +1539,14 @@
   // appsCustomDate: 'YYYY-MM-DD' when appsRange === 'custom'
   let appsRange = 'today';
   let appsCustomDate = '';
+  // Insights view has its own range — defaults to 'all' since funnel
+  // is more useful with the full pipeline.
+  let insightsRange = 'all';
+  let insightsCustomDate = '';
 
-  function getAppsRangeBounds(range) {
+  // Range bounds helper — used by both the Applications view and the
+  // Insights view. customDate is optional (only used when range='custom').
+  function rangeBounds(range, customDate) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const day = (n) => {
       const d = new Date(today.getTime() - n * 86400000);
@@ -1539,11 +1558,13 @@
     if (range === '2days')     return { from: day(2),    to: day(2),    label: day(2) };
     if (range === 'week')      return { from: day(6),    to: todayStr,  label: 'last 7 days (' + day(6) + ' → ' + todayStr + ')' };
     if (range === 'month')     return { from: day(29),   to: todayStr,  label: 'last 30 days (' + day(29) + ' → ' + todayStr + ')' };
-    if (range === 'custom' && appsCustomDate) {
-      return { from: appsCustomDate, to: appsCustomDate, label: appsCustomDate };
+    if (range === 'custom' && customDate) {
+      return { from: customDate, to: customDate, label: customDate };
     }
     return { from: null, to: null, label: 'all time' };
   }
+  // Backwards-compat wrapper for the apps-side caller.
+  function getAppsRangeBounds(range) { return rangeBounds(range, appsCustomDate); }
 
   function appInRange(a, bounds) {
     if (!bounds.from) return true; // 'all'
@@ -2007,36 +2028,39 @@
     return '—';
   }
 
-  // ---------- End of Day Report ----------
-  // Counts applications applied today by their `date` field (YYYY-MM-DD),
-  // plus interview/assessment/offer/rejection signals derived from
-  // status-changed-today markers (we approximate with current status
-  // for any app whose date is today). Time tracked = sessions ending
-  // today + active session's contribution.
+  // ---------- Activity Report (was End-of-Day) ----------
+  // Counts applications by their `date` field over the Insights range.
+  // Time-tracked is computed across the same window so the 'hours'
+  // figure matches the apps figure semantically.
   function renderEodReport() {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const bounds = rangeBounds(insightsRange, insightsCustomDate);
     const eodDate = document.getElementById('eod-date');
-    if (eodDate) eodDate.textContent = todayStr;
-    const todayApps = state.applications.filter(a => a.date === todayStr);
+    if (eodDate) eodDate.textContent = bounds.label;
+
+    const inRange = !bounds.from
+      ? state.applications.slice()
+      : state.applications.filter(a => {
+          const d = a.date || '';
+          return d >= bounds.from && d <= bounds.to;
+        });
     const counts = { applied: 0, interview: 0, assessment: 0, offer: 0, rejected: 0 };
-    for (const a of todayApps) if (counts[a.status] !== undefined) counts[a.status]++;
+    for (const a of inRange) if (counts[a.status] !== undefined) counts[a.status]++;
     document.getElementById('eod-applied').textContent    = counts.applied + counts.interview + counts.assessment + counts.offer + counts.rejected;
     document.getElementById('eod-interviews').textContent = counts.interview + counts.assessment;
     document.getElementById('eod-offers').textContent     = counts.offer;
     document.getElementById('eod-rejections').textContent = counts.rejected;
 
-    // Time today
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const sodMs = startOfDay.getTime();
+    // Time tracked over the same range. Session timestamps are ms;
+    // bounds are YYYY-MM-DD strings. Convert.
+    const fromMs = bounds.from ? new Date(bounds.from + 'T00:00:00').getTime() : 0;
+    const toMs   = bounds.to   ? new Date(bounds.to   + 'T23:59:59').getTime() : Date.now();
     let dayMs = 0;
     for (const s of state.sessions) {
-      if (s.end >= sodMs) {
-        dayMs += Math.min(s.end, Date.now()) - Math.max(s.start, sodMs);
-      }
+      if (s.end < fromMs || s.start > toMs) continue;
+      dayMs += Math.min(s.end, toMs) - Math.max(s.start, fromMs);
     }
-    if (state.activeSession) {
-      dayMs += Date.now() - Math.max(state.activeSession.start, sodMs);
+    if (state.activeSession && state.activeSession.start <= toMs && Date.now() >= fromMs) {
+      dayMs += Math.min(Date.now(), toMs) - Math.max(state.activeSession.start, fromMs);
     }
     const totalMins = Math.floor(dayMs / 60000);
     const hh = Math.floor(totalMins / 60);
@@ -2046,10 +2070,10 @@
     // Detail list
     const detail = document.getElementById('eod-detail');
     detail.innerHTML = '';
-    if (!todayApps.length) {
-      detail.innerHTML = '<div class="empty" style="padding: 8px;">No application activity today.</div>';
+    if (!inRange.length) {
+      detail.innerHTML = '<div class="empty" style="padding: 8px;">No applications in this range.</div>';
     } else {
-      const sorted = todayApps.slice().sort((a, b) => (STATUS_RANK[b.status] || 0) - (STATUS_RANK[a.status] || 0));
+      const sorted = inRange.slice().sort((a, b) => (STATUS_RANK[b.status] || 0) - (STATUS_RANK[a.status] || 0));
       for (const a of sorted) {
         const row = document.createElement('div');
         row.className = 'eod-row';
@@ -2065,10 +2089,31 @@
   // ---------- Insights ----------
   function renderInsights() {
     renderEodReport();
-    const apps = state.applications;
+    // Filter every Insights metric (funnel, KPIs, source chart) to the
+    // current Insights range. The apps array used downstream is the
+    // filtered subset.
+    const insightsBounds = rangeBounds(insightsRange, insightsCustomDate);
+    const apps = !insightsBounds.from
+      ? state.applications
+      : state.applications.filter(a => {
+          const d = a.date || '';
+          return d >= insightsBounds.from && d <= insightsBounds.to;
+        });
     const total = apps.length;
     document.getElementById('insights-total').textContent = total + ' total';
     document.getElementById('funnel-total').textContent = total + ' application' + (total === 1 ? '' : 's');
+
+    // Sync the Insights range bar UI on every render
+    document.querySelectorAll('[data-insights-range]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.insightsRange === insightsRange);
+    });
+    const ilbl = document.getElementById('insights-range-label');
+    if (ilbl) ilbl.innerHTML = 'Showing <b>' + total + '</b> · ' + insightsBounds.label;
+    const idate = document.getElementById('insights-date-jump');
+    if (idate && document.activeElement !== idate) {
+      if (insightsRange === 'custom') idate.value = insightsCustomDate;
+      else idate.value = insightsBounds.to || '';
+    }
 
     // Per-status counts
     const statuses = ['applied','interview','assessment','offer','rejected'];
@@ -2472,6 +2517,22 @@
     appsCustomDate = v;
     renderStats();
     renderApps();
+  });
+
+  // Insights range bar — same UX, separate state.
+  document.getElementById('insights-range').addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-insights-range]');
+    if (!btn) return;
+    insightsRange = btn.dataset.insightsRange;
+    insightsCustomDate = '';
+    renderInsights();
+  });
+  document.getElementById('insights-date-jump').addEventListener('change', function (e) {
+    const v = e.target.value;
+    if (!v) return;
+    insightsRange = 'custom';
+    insightsCustomDate = v;
+    renderInsights();
   });
 
   document.getElementById('filter-row').addEventListener('click', function (e) {
