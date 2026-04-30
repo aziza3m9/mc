@@ -358,10 +358,11 @@
   .session-row {
     padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
     background: linear-gradient(180deg, var(--panel-2), var(--panel));
-    display: grid; grid-template-columns: 1fr auto auto; gap: 10px 16px;
+    display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px 14px;
     align-items: center;
     transition: border-color .15s ease;
   }
+  .session-row.live { grid-template-columns: 1fr auto 1fr; } /* live row has only duration; placeholder span fills last cell */
   .session-row:hover { border-color: var(--border-strong); }
   .session-row.live {
     border-color: rgba(94,229,255,.4);
@@ -447,6 +448,38 @@
     letter-spacing: -.01em;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  /* Forgot-to-clock-out banner */
+  .forgot-banner {
+    position: sticky; top: 0; z-index: 100;
+    background: linear-gradient(180deg, rgba(251,191,36,.18), rgba(251,191,36,.10));
+    border-bottom: 1px solid rgba(251,191,36,.45);
+    padding: 12px 24px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    color: var(--text); font-size: 13px;
+    backdrop-filter: blur(8px);
+  }
+  .forgot-banner strong { color: var(--amber); }
+  .forgot-banner .muted { color: var(--muted); }
+  .forgot-banner-text { flex: 1; min-width: 240px; }
+  .forgot-banner-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* Add / edit session forms */
+  .add-session-row { padding: 10px 0 0; }
+  .add-session-form, .edit-session-form {
+    display: grid; grid-template-columns: 1fr 1fr 1fr auto auto; gap: 8px;
+    padding: 10px 12px; margin: 6px 0;
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px;
+  }
+  @media (max-width: 720px) {
+    .add-session-form, .edit-session-form { grid-template-columns: 1fr 1fr; }
+  }
+  .add-session-form input, .edit-session-form input {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; font-size: 12px; font-family: inherit;
+    color-scheme: dark;
   }
 
 
@@ -717,6 +750,20 @@
 </head>
 <body>
 <div id="toast-container" class="toasts" aria-live="polite"></div>
+<div id="forgot-banner" class="forgot-banner" hidden>
+  <div class="forgot-banner-text">
+    <strong>Still clocked in</strong> since
+    <span id="forgot-since">—</span>.
+    <span class="muted">Did you forget to clock out?</span>
+  </div>
+  <div class="forgot-banner-actions">
+    <button class="btn-ghost btn-sm" id="forgot-end-suggested">
+      End at <span id="forgot-suggest-time">—</span>
+    </button>
+    <button class="btn-primary btn-sm" id="forgot-end-now">End now</button>
+    <button class="btn-ghost btn-sm" id="forgot-keep" title="Keep the session running">Dismiss</button>
+  </div>
+</div>
 <div class="app-shell">
 
   <!-- ========== LEFT NAV ========== -->
@@ -867,6 +914,16 @@
 
       <section class="panel">
         <h2>Sessions <span class="count" id="sessions-count">0</span></h2>
+        <div class="add-session-row">
+          <button class="btn-ghost btn-sm" id="add-session-btn">+ Add past session</button>
+          <div id="add-session-form" class="add-session-form" hidden>
+            <input type="text" id="add-name" placeholder="Worker" />
+            <input type="datetime-local" id="add-start" />
+            <input type="datetime-local" id="add-end" />
+            <button class="btn-primary btn-sm" id="add-save">Save</button>
+            <button class="btn-ghost btn-sm" id="add-cancel">Cancel</button>
+          </div>
+        </div>
         <div id="sessions-list" class="sessions"></div>
       </section>
     </section>
@@ -1186,6 +1243,7 @@
       document.getElementById('session-elapsed').textContent = formatCompact(elapsed);
     }
     updateTotals();
+    renderForgotBanner();
   }
 
   function updateTotals() {
@@ -1268,6 +1326,57 @@
     updateClockUI();
     renderSessions();
     updateTotals();
+    forgotSnoozed = false; // re-arm the banner for the next session
+  }
+
+  // ---------- Forgot-to-clock-out banner ----------
+  // Shown when there's an active session older than FORGOT_THRESHOLD.
+  // Suggests a sensible end time (start + 8h, or end-of-start-day,
+  // whichever is earlier) and offers an "End now" / "Dismiss" choice.
+  // Dismiss is per-session: clearing the active session re-arms it.
+  const FORGOT_THRESHOLD_MS = 12 * 60 * 60 * 1000; // 12 hours
+  let forgotSnoozed = false;
+
+  function suggestForgotEnd(start) {
+    const startMs = start.getTime();
+    const eod = new Date(start); eod.setHours(23, 59, 0, 0);
+    return new Date(Math.min(startMs + 8 * 60 * 60 * 1000, eod.getTime()));
+  }
+
+  function renderForgotBanner() {
+    const banner = document.getElementById('forgot-banner');
+    if (!banner) return;
+    if (!state.activeSession || forgotSnoozed) { banner.hidden = true; return; }
+    const elapsed = Date.now() - state.activeSession.start;
+    if (elapsed < FORGOT_THRESHOLD_MS) { banner.hidden = true; return; }
+    const start = new Date(state.activeSession.start);
+    const suggested = suggestForgotEnd(start);
+    document.getElementById('forgot-since').textContent =
+      formatTime(start) + ' on ' + start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const suggestEl = document.getElementById('forgot-suggest-time');
+    suggestEl.textContent = formatTime(suggested);
+    suggestEl.dataset.endMs = String(suggested.getTime());
+    banner.hidden = false;
+  }
+
+  // Convert the active session into a saved one with a specified end ms.
+  function finalizeActiveAt(endMs) {
+    if (!state.activeSession) return;
+    const start = state.activeSession.start;
+    if (endMs <= start) endMs = start + 60000; // minimum 1-min session
+    state.sessions.unshift({
+      id: uid(),
+      start: start,
+      end: endMs,
+      name: state.activeSession.name || ''
+    });
+    state.activeSession = null;
+    forgotSnoozed = false;
+    save();
+    updateClockUI();
+    renderSessions();
+    updateTotals();
+    renderForgotBanner();
   }
 
   // ---------- Applications ----------
@@ -1470,6 +1579,8 @@
   // mode: 'day' | 'week' | 'month'
   // anchor: any date inside the currently-viewed range
   let timesheetView = { mode: 'week', anchor: new Date() };
+  // Track which session row is currently being edited inline.
+  let editingSessionId = null;
 
   function getRangeBounds(view) {
     const a = new Date(view.anchor);
@@ -1660,6 +1771,21 @@
       }
       const sameDay = start.toDateString() === end.toDateString();
       const name = (s.name || '').trim();
+
+      if (editingSessionId === s.id) {
+        // Inline edit form
+        const ef = document.createElement('div');
+        ef.className = 'edit-session-form';
+        ef.innerHTML =
+          '<input type="text" data-edit-field="name" value="' + escapeHtml(s.name || '') + '" placeholder="Worker" />' +
+          '<input type="datetime-local" data-edit-field="start" value="' + toLocalIsoMin(start) + '" />' +
+          '<input type="datetime-local" data-edit-field="end" value="' + toLocalIsoMin(end) + '" />' +
+          '<button class="btn-primary btn-sm" data-edit-save="' + s.id + '">Save</button>' +
+          '<button class="btn-ghost btn-sm" data-edit-cancel="' + s.id + '">Cancel</button>';
+        list.appendChild(ef);
+        continue;
+      }
+
       const div = document.createElement('div');
       div.className = 'session-row';
       div.innerHTML =
@@ -1676,6 +1802,7 @@
           '</div>' +
         '</div>' +
         '<div class="session-duration">' + formatDuration(s.end - s.start) + '</div>' +
+        '<button class="icon-btn" data-session-edit="' + s.id + '" title="Edit session" aria-label="Edit">✎</button>' +
         '<button class="icon-btn danger" data-session-del="' + s.id + '" title="Delete session">×</button>';
       list.appendChild(div);
     }
@@ -1941,6 +2068,62 @@
   document.getElementById('clock-in-btn').addEventListener('click', clockIn);
   document.getElementById('clock-out-btn').addEventListener('click', clockOut);
 
+  // Forgot-banner button wiring
+  document.getElementById('forgot-end-suggested').addEventListener('click', () => {
+    const ms = Number(document.getElementById('forgot-suggest-time').dataset.endMs);
+    if (isFinite(ms) && ms > 0) finalizeActiveAt(ms);
+  });
+  document.getElementById('forgot-end-now').addEventListener('click', () => {
+    finalizeActiveAt(Date.now());
+  });
+  document.getElementById('forgot-keep').addEventListener('click', () => {
+    forgotSnoozed = true;
+    renderForgotBanner();
+  });
+
+  // Add past session
+  function toLocalIsoMin(d) {
+    const tz = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tz).toISOString().slice(0, 16);
+  }
+  function cancelAddSession() {
+    document.getElementById('add-session-form').hidden = true;
+    document.getElementById('add-session-btn').hidden = false;
+  }
+  document.getElementById('add-session-btn').addEventListener('click', () => {
+    document.getElementById('add-session-btn').hidden = true;
+    document.getElementById('add-session-form').hidden = false;
+    const now = new Date();
+    const earlier = new Date(now.getTime() - 60 * 60 * 1000);
+    document.getElementById('add-name').value = 'Anne';
+    document.getElementById('add-start').value = toLocalIsoMin(earlier);
+    document.getElementById('add-end').value   = toLocalIsoMin(now);
+  });
+  document.getElementById('add-cancel').addEventListener('click', cancelAddSession);
+  document.getElementById('add-save').addEventListener('click', () => {
+    const name     = document.getElementById('add-name').value.trim();
+    const startStr = document.getElementById('add-start').value;
+    const endStr   = document.getElementById('add-end').value;
+    if (!startStr || !endStr) {
+      showToast('Missing time', 'Need both a start and end.', 'error');
+      return;
+    }
+    const start = new Date(startStr).getTime();
+    const end   = new Date(endStr).getTime();
+    if (!isFinite(start) || !isFinite(end)) {
+      showToast('Invalid date', 'Couldn\'t parse the times.', 'error'); return;
+    }
+    if (end <= start) {
+      showToast('Invalid range', 'End must be after start.', 'error'); return;
+    }
+    state.sessions.push({ id: uid(), start, end, name });
+    state.sessions.sort((a, b) => b.start - a.start);
+    save();
+    cancelAddSession();
+    renderSessions();
+    showToast('Session added', (name || 'Unassigned') + ' · ' + formatHrsMins(end - start), 'ok');
+  });
+
   // Calendar navigator wiring
   document.querySelectorAll('[data-cal-shift]').forEach(btn => {
     btn.addEventListener('click', () => shiftRange(btn.dataset.calShift));
@@ -2053,14 +2236,57 @@
   });
 
   document.getElementById('sessions-list').addEventListener('click', function (e) {
+    // Delete
     const del = e.target.closest('[data-session-del]');
-    if (!del) return;
-    const id = del.dataset.sessionDel;
-    if (!confirm('Remove this session?')) return;
-    state.sessions = state.sessions.filter(s => s.id !== id);
-    save();
-    renderSessions();
-    updateTotals();
+    if (del) {
+      const id = del.dataset.sessionDel;
+      if (!confirm('Remove this session?')) return;
+      state.sessions = state.sessions.filter(s => s.id !== id);
+      if (editingSessionId === id) editingSessionId = null;
+      save();
+      renderSessions();
+      updateTotals();
+      return;
+    }
+    // Open edit
+    const editBtn = e.target.closest('[data-session-edit]');
+    if (editBtn) {
+      editingSessionId = editBtn.dataset.sessionEdit;
+      renderSessions();
+      return;
+    }
+    // Save edit
+    const saveBtn = e.target.closest('[data-edit-save]');
+    if (saveBtn) {
+      const id = saveBtn.dataset.editSave;
+      const row = saveBtn.closest('.edit-session-form');
+      const get = (f) => row.querySelector('[data-edit-field="' + f + '"]').value;
+      const name = get('name').trim();
+      const startStr = get('start');
+      const endStr = get('end');
+      if (!startStr || !endStr) { showToast('Missing time', 'Need both start and end.', 'error'); return; }
+      const start = new Date(startStr).getTime();
+      const end = new Date(endStr).getTime();
+      if (!isFinite(start) || !isFinite(end)) { showToast('Invalid date', 'Couldn\'t parse times.', 'error'); return; }
+      if (end <= start) { showToast('Invalid range', 'End must be after start.', 'error'); return; }
+      const s = state.sessions.find(x => x.id === id);
+      if (s) {
+        s.start = start; s.end = end; s.name = name;
+        state.sessions.sort((a, b) => b.start - a.start);
+        save();
+      }
+      editingSessionId = null;
+      renderSessions();
+      updateTotals();
+      return;
+    }
+    // Cancel edit
+    const cancelBtn = e.target.closest('[data-edit-cancel]');
+    if (cancelBtn) {
+      editingSessionId = null;
+      renderSessions();
+      return;
+    }
   });
 
   // Comp goal — debounced save so we don't write per-keystroke
