@@ -754,6 +754,71 @@
     line-height: 1.5;
   }
 
+  /* Add Application modal */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(6,9,20,.78);
+    backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    animation: modalFade .15s ease-out;
+  }
+  .modal-overlay[hidden] { display: none; }
+  @keyframes modalFade { from { opacity: 0; } to { opacity: 1; } }
+  .modal-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px rgba(79,158,255,.18), 0 24px 60px rgba(0,0,0,.5);
+    width: min(560px, 100%); max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    position: relative;
+  }
+  .modal-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+    box-shadow: 0 0 12px rgba(79,158,255,.4);
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+  }
+  .modal-head h2 {
+    margin: 0; font-size: 14px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--text);
+  }
+  .modal-body {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    padding: 18px 20px;
+  }
+  .modal-body label {
+    display: flex; flex-direction: column; gap: 6px;
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .08em; font-weight: 700;
+  }
+  .modal-body label.modal-notes { grid-column: 1 / -1; }
+  .modal-body input, .modal-body select, .modal-body textarea {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 11px; font-size: 13px; font-family: inherit;
+    text-transform: none; letter-spacing: normal; font-weight: 500;
+    color-scheme: dark;
+  }
+  .modal-body input:focus, .modal-body select:focus, .modal-body textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79,158,255,.15);
+  }
+  .modal-body textarea { resize: vertical; min-height: 64px; }
+  .modal-actions {
+    grid-column: 1 / -1;
+    display: flex; gap: 8px; justify-content: flex-end;
+    padding-top: 4px;
+  }
+  @media (max-width: 600px) {
+    .modal-body { grid-template-columns: 1fr; }
+  }
+
   /* Toasts (status updates / dedup notices) */
   .session-name-row {
     margin-top: 12px; display: flex; flex-direction: column; gap: 4px;
@@ -863,6 +928,7 @@
           <h1>Application Dashboard</h1>
           <div class="subtitle">Track applications, interviews, assessments &amp; rejections</div>
         </div>
+        <button class="btn-primary" id="open-add-modal">+ Add Application</button>
       </header>
 
       <section class="apps-range-bar">
@@ -1150,6 +1216,48 @@
     </section>
 
   </main>
+</div>
+
+<!-- Manual application entry modal -->
+<div id="add-modal" class="modal-overlay" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
+    <div class="modal-head">
+      <h2 id="add-modal-title">New Application</h2>
+      <button class="icon-btn" id="add-modal-close" aria-label="Close">×</button>
+    </div>
+    <form id="add-modal-form" class="modal-body">
+      <label>Company<input type="text" id="ma-company" required placeholder="e.g. Acme Health" autocomplete="off" /></label>
+      <label>Role / Title<input type="text" id="ma-role" placeholder="e.g. Medical Coder" autocomplete="off" /></label>
+      <label>Source
+        <select id="ma-source">
+          <option value="">— pick a channel —</option>
+          <option value="linkedin">LinkedIn</option>
+          <option value="indeed">Indeed</option>
+          <option value="ziprecruiter">ZipRecruiter</option>
+          <option value="referral">Referral</option>
+          <option value="company">Company site</option>
+          <option value="recruiter">Recruiter</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label>Status
+        <select id="ma-status">
+          <option value="applied" selected>Applied</option>
+          <option value="interview">Interview</option>
+          <option value="assessment">Assessment</option>
+          <option value="offer">Offer</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </label>
+      <label>Applied date<input type="date" id="ma-date" /></label>
+      <label>Location<input type="text" id="ma-location" placeholder="Remote, Boston, etc." autocomplete="off" /></label>
+      <label class="modal-notes">Notes<textarea id="ma-notes" rows="3" placeholder="Anything worth remembering"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="add-modal-cancel">Cancel</button>
+        <button type="submit" class="btn-primary" id="add-modal-save">Save</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -2292,6 +2400,56 @@
       renderSessions();
       return;
     }
+  });
+
+  // ----- Manual application entry modal -----
+  const addModal = document.getElementById('add-modal');
+  function openAddModal() {
+    document.getElementById('ma-company').value = '';
+    document.getElementById('ma-role').value = '';
+    document.getElementById('ma-source').value = '';
+    document.getElementById('ma-status').value = 'applied';
+    document.getElementById('ma-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('ma-location').value = '';
+    document.getElementById('ma-notes').value = '';
+    addModal.hidden = false;
+    setTimeout(() => document.getElementById('ma-company').focus(), 30);
+  }
+  function closeAddModal() { addModal.hidden = true; }
+
+  document.getElementById('open-add-modal').addEventListener('click', openAddModal);
+  document.getElementById('add-modal-close').addEventListener('click', closeAddModal);
+  document.getElementById('add-modal-cancel').addEventListener('click', closeAddModal);
+  // Click outside the card to close
+  addModal.addEventListener('click', (e) => { if (e.target === addModal) closeAddModal(); });
+  // Escape to close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !addModal.hidden) closeAddModal();
+  });
+
+  document.getElementById('add-modal-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const company = document.getElementById('ma-company').value.trim();
+    if (!company) { showToast('Company required', 'Add at least a company name.', 'error'); return; }
+    const newApp = {
+      id: uid(),
+      company,
+      role:     document.getElementById('ma-role').value.trim(),
+      salaryMin: null, salaryMax: null,
+      date:     document.getElementById('ma-date').value || new Date().toISOString().slice(0, 10),
+      status:   document.getElementById('ma-status').value || 'applied',
+      source:   document.getElementById('ma-source').value || '',
+      location: document.getElementById('ma-location').value.trim(),
+      followUp: '', nextAction: '',
+      notes:    document.getElementById('ma-notes').value.trim()
+    };
+    state.applications.unshift(newApp);
+    save();
+    closeAddModal();
+    renderStats();
+    renderApps();
+    refreshInsightsIfActive();
+    showToast('Application added', company + (newApp.role ? ' · ' + newApp.role : ''), 'ok');
   });
 
   // Date-range tab clicks on Applications view. Picking a preset
