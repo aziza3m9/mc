@@ -349,6 +349,18 @@
 
   /* Filter row */
   .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .apps-range-bar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .apps-range-bar .cal-mode { margin-left: 0; }
+  .apps-range-bar .apps-range-label {
+    font-size: 12px; color: var(--muted); letter-spacing: .04em;
+    font-variant-numeric: tabular-nums;
+  }
+  .apps-range-bar .apps-range-label b {
+    color: var(--accent); font-weight: 700;
+  }
   .chip {
     background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
     padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; user-select: none;
@@ -852,6 +864,18 @@
           <div class="subtitle">Track applications, interviews, assessments &amp; rejections</div>
         </div>
       </header>
+
+      <section class="apps-range-bar">
+        <div class="cal-mode" role="tablist" id="apps-range">
+          <button class="cal-mode-btn active" data-apps-range="today"     role="tab">Today</button>
+          <button class="cal-mode-btn"        data-apps-range="yesterday" role="tab">Yesterday</button>
+          <button class="cal-mode-btn"        data-apps-range="2days"     role="tab">2 days ago</button>
+          <button class="cal-mode-btn"        data-apps-range="week"      role="tab">Last 7d</button>
+          <button class="cal-mode-btn"        data-apps-range="month"     role="tab">Last 30d</button>
+          <button class="cal-mode-btn"        data-apps-range="all"       role="tab">All time</button>
+        </div>
+        <div class="apps-range-label" id="apps-range-label">—</div>
+      </section>
 
       <section class="stats">
         <div class="stat applied"><div class="label">Applied</div><div class="value" id="stat-applied">0</div></div>
@@ -1388,23 +1412,66 @@
     })[s] || s;
   }
 
+  // Date-range filter for the Applications view (separate from the
+  // status chip filter). Default = today; persists in memory only.
+  let appsRange = 'today';
+
+  function getAppsRangeBounds(range) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const day = (n) => {
+      const d = new Date(today.getTime() - n * 86400000);
+      return d.toISOString().slice(0, 10);
+    };
+    const todayStr = today.toISOString().slice(0, 10);
+    if (range === 'today')     return { from: todayStr,  to: todayStr,  label: 'today (' + todayStr + ')' };
+    if (range === 'yesterday') return { from: day(1),    to: day(1),    label: 'yesterday (' + day(1) + ')' };
+    if (range === '2days')     return { from: day(2),    to: day(2),    label: day(2) };
+    if (range === 'week')      return { from: day(6),    to: todayStr,  label: 'last 7 days (' + day(6) + ' → ' + todayStr + ')' };
+    if (range === 'month')     return { from: day(29),   to: todayStr,  label: 'last 30 days (' + day(29) + ' → ' + todayStr + ')' };
+    return { from: null, to: null, label: 'all time' };
+  }
+
+  function appInRange(a, bounds) {
+    if (!bounds.from) return true; // 'all'
+    const d = a.date || '';
+    return d >= bounds.from && d <= bounds.to;
+  }
+
+  function appsInRange() {
+    const bounds = getAppsRangeBounds(appsRange);
+    return state.applications.filter(a => appInRange(a, bounds));
+  }
+
   function renderStats() {
+    const inRange = appsInRange();
     const counts = { applied: 0, interview: 0, assessment: 0, offer: 0, rejected: 0 };
-    for (const a of state.applications) if (counts[a.status] !== undefined) counts[a.status]++;
+    for (const a of inRange) if (counts[a.status] !== undefined) counts[a.status]++;
     document.getElementById('stat-applied').textContent = counts.applied;
     document.getElementById('stat-interview').textContent = counts.interview;
     document.getElementById('stat-assessment').textContent = counts.assessment;
     document.getElementById('stat-offer').textContent = counts.offer;
     document.getElementById('stat-rejected').textContent = counts.rejected;
-    document.getElementById('apps-count').textContent = state.applications.length + ' total';
+    document.getElementById('apps-count').textContent =
+      inRange.length + ' shown · ' + state.applications.length + ' total';
+    // Range label
+    const lbl = document.getElementById('apps-range-label');
+    if (lbl) {
+      const bounds = getAppsRangeBounds(appsRange);
+      lbl.innerHTML = 'Showing <b>' + inRange.length + '</b> · ' + bounds.label;
+    }
+    // Sync the active button state
+    document.querySelectorAll('[data-apps-range]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.appsRange === appsRange);
+    });
   }
 
   function renderApps() {
     const body = document.getElementById('apps-body');
     body.innerHTML = '';
+    const inRange = appsInRange();
     const filtered = activeFilter === 'all'
-      ? state.applications
-      : state.applications.filter(a => a.status === activeFilter);
+      ? inRange
+      : inRange.filter(a => a.status === activeFilter);
 
     if (!filtered.length) {
       const tr = document.createElement('tr');
@@ -2210,6 +2277,15 @@
       renderSessions();
       return;
     }
+  });
+
+  // Date-range tab clicks on Applications view
+  document.getElementById('apps-range').addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-apps-range]');
+    if (!btn) return;
+    appsRange = btn.dataset.appsRange;
+    renderStats();
+    renderApps();
   });
 
   document.getElementById('filter-row').addEventListener('click', function (e) {
