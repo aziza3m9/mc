@@ -130,6 +130,129 @@ function extractSalaryRaw(body) {
   return hits.slice(0, 6).join(' | ');
 }
 
+// ----- Company / role extraction --------------------------------------
+// Indeed and LinkedIn confirmation emails ship the actual employer in
+// the BODY, not the subject. The from-header display name ("Indeed
+// Apply", "LinkedIn", "ZipRecruiter") is the platform, not the
+// company, so we have to look in the body. We also try to surface a
+// real job title even when the subject is generic.
+
+const PLATFORM_NAME_RE = /^(indeed|linkedin|ziprecruiter|glassdoor|monster|dice|workday|greenhouse|lever|ashby|noreply|no-?reply|jobs|hiring|careers|apply|gmail|google|google\s+(?:play|workspace|account|cloud|for|notifications)|the\s+team)\b/i;
+
+// Senders we never want to ingest — these are infrastructure / account
+// notifications from Google itself, not job applications, even if their
+// bodies happen to contain words like "your application".
+const NOISE_SENDER_RE = /@(google\.com|googlemail\.com|accounts\.google\.com|googleplay\.com|firebase\.google\.com|googleusercontent\.com)/i;
+
+function _isPlatformWord(s) {
+  return !s || PLATFORM_NAME_RE.test(s.trim());
+}
+
+function _cleanCompany(s) {
+  s = (s || '').trim().replace(/^["']|["']$/g, '');
+  s = s.replace(/[.,!?;:]+$/, '').trim();
+  // Strip trailing "team" / "careers" / etc. without losing legit names like "X Inc"
+  s = s.replace(/\s+(team|careers|hr|recruiting|talent acquisition|hiring|talent)$/i, '').trim();
+  if (s.length > 80) s = s.slice(0, 80);
+  return s;
+}
+
+function _cleanRole(s) {
+  s = (s || '').trim().replace(/^["']|["']$/g, '');
+  s = s.replace(/[.,!?;:]+$/, '').trim();
+  // Strip trailing " at <Company>" if a role pattern bled into it.
+  s = s.replace(/\s+(?:at|with|@)\s+.{1,80}$/i, '').trim();
+  if (s.length > 100) s = s.slice(0, 100);
+  return s;
+}
+
+function extractCompanyHint(subject, body, fromDisplay) {
+  const s = (subject || '');
+  const b = (body || '');
+  const text = (s + ' \n ' + b);
+  let m;
+
+  // LinkedIn: "Your application was sent to <Company>"
+  m = s.match(/Your application was sent to\s+(.+?)(?:\s+for\s+|\s*$)/i);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "Thank you for applying to <Company>"
+  m = text.match(/(?:thank you for applying|thanks for applying|thank you for your interest in)\s+(?:to\s+)?(?:the\s+)?(.+?)(?:[.,!]|\s+for the\b|\s+team\b|\s+·|\s+\|)/i);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "<Company> received your application" (start of body)
+  m = b.match(/^\s*([A-Z][A-Za-z0-9 &'.\-,#]+?)\s+(?:received|has received|got|just received)\s+your application/);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "your application to <Company>"
+  m = text.match(/your application (?:to|with)\s+(.+?)(?:[.,!]|\s+for\s+|\s+has\s+|\s+is\s+|\s+team\b)/i);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "<Title> position at <Company>" / "role at <Company>"
+  m = text.match(/(?:position|role|job|opening|opportunity)\s+at\s+(.+?)(?:[.,!]|\s+team\b|\s+is\s+|\s+has\s+|\s+via\b)/i);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "applied to[:] <…> at <Company>" — handles "You applied to: Foo at Bar"
+  m = text.match(/applied (?:to|for)\s*:?\s*[^.\n]{2,80}? at\s+(.+?)(?:[.,!]|\s+via\b|\s+team\b|\s+·)/i);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "interview (?:with|at|for) … at <Company>" / "interview with <Company>"
+  m = text.match(/interview\s+(?:with|at)\s+(.+?)(?:[.,!]|\s+for\b|\s+team\b|\s+·)/i);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "<Title> at <Company>" near top of body — fallback
+  m = b.match(/^[^.\n]{0,80}?\b(?:at|with)\s+([A-Z][\w&'.\-,# ]{1,60}?)(?:[.,!]|\s+via\b|\s+team\b|\s+·)/);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  // "<Company> · <Location>" pattern (Indeed/LinkedIn job-card lines)
+  m = b.match(/([A-Z][\w&'.\-,# ]{1,60}?)\s*[·•|]\s*(?:[A-Z][a-z]+[\w, ]*|Remote|Hybrid|United States|Onsite|Full[\s-]?Time|Part[\s-]?Time)/);
+  if (m && !_isPlatformWord(m[1])) return _cleanCompany(m[1]);
+
+  return '';
+}
+
+function extractRoleHint(subject, body) {
+  const s = (subject || '');
+  const b = (body || '');
+  const text = (s + ' \n ' + b);
+  let m;
+
+  // "Indeed Apply: <Title>" / "Application sent: <Title>"
+  m = s.match(/^\s*(?:Indeed Apply|Indeed Application|Application sent|Your application)\s*[:\-–—]\s*(.+?)\s*$/i);
+  if (m) {
+    let r = m[1].replace(/\s+via\s+(?:Indeed|LinkedIn|ZipRecruiter).*$/i, '');
+    return _cleanRole(r);
+  }
+
+  // "applied to / applying for the <Title> position|role|job".
+  // [^.;:] keeps us inside one sentence (so we don't drag in a
+  // following clause like "...for the X position. We received...").
+  m = text.match(/(?:applied (?:to|for)|applying (?:to|for)|application (?:to|for))\s+(?:the\s+)?([^.;:\n]{2,80}?)\s+(?:position|role|job|opportunity|opening)\b/i);
+  if (m) return _cleanRole(m[1]);
+
+  // "for the <Title> role" / "for our <Title> position" — no "at <Company>" required
+  m = text.match(/\bfor (?:the|our)\s+([^.;:\n]{2,80}?)\s+(?:position|role|opening|opportunity)\b/i);
+  if (m) return _cleanRole(m[1]);
+
+  // "the <Title> position|role at <Company>"
+  m = text.match(/\bthe\s+([^.;:\n]{2,80}?)\s+(?:position|role|job|opening)\s+at\s+/i);
+  if (m) return _cleanRole(m[1]);
+
+  // "Application for: <Title>" / "Application for <Title>"
+  m = text.match(/application for:?\s+([^.;:\n]+?)(?:[.\n]|\s+at\s+|\s+·\s+|\s+\|\s+|\s+with\s+)/i);
+  if (m) return _cleanRole(m[1]);
+
+  // "You applied to: <Title>" (Indeed body)
+  m = text.match(/you applied to:?\s+([^.;:\n]+?)(?:[.\n]|\s+at\s+|\s+·\s+|\s+\|\s+|\s+via\b)/i);
+  if (m) return _cleanRole(m[1]);
+
+  // "interview for the <Title>"
+  m = text.match(/interview for (?:the\s+)?([^.;:\n]+?)(?:[.,!]|\s+role\b|\s+position\b|\s+opportunity\b|\s+at\b)/i);
+  if (m) return _cleanRole(m[1]);
+
+  return '';
+}
+
 function scanInbox() {
   const q = SCAN_QUERY + ' newer_than:' + WINDOW_DAYS + 'd';
   const threads = GmailApp.search(q, 0, MAX_THREADS);
@@ -138,16 +261,23 @@ function scanInbox() {
     try {
       const messages = thread.getMessages();
       const last = messages[messages.length - 1];
+      const from = last.getFrom() || '';
+      // Skip Google/Gmail-system senders — they aren't job applications
+      // even if their bodies happen to match a keyword.
+      if (NOISE_SENDER_RE.test(from)) continue;
       const body = (last.getPlainBody() || '').replace(/\s+/g, ' ').trim();
+      const subject = last.getSubject() || '';
       out.push({
         threadId: thread.getId(),
         messageId: last.getId(),
         internalDate: last.getDate().getTime(),
-        subject: last.getSubject() || '',
-        from: last.getFrom() || '',
+        subject: subject,
+        from: from,
         date: last.getDate().toISOString(),
         snippet: body.slice(0, 240),
-        salaryRaw: extractSalaryRaw(body)
+        salaryRaw: extractSalaryRaw(body),
+        companyHint: extractCompanyHint(subject, body, from),
+        roleHint: extractRoleHint(subject, body)
       });
     } catch (e) { /* skip individual failures, keep going */ }
   }
