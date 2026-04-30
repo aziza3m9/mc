@@ -802,6 +802,31 @@
         </label>
       </section>
 
+      <section class="panel">
+        <h2>Background Sync (optional)</h2>
+        <p class="setup-note">
+          Runs in Google's cloud on a 15-min timer — works even when your
+          laptop is closed. One-time Apps Script setup (~5 min) — see
+          <code>apps-script/Code.gs</code> &amp; <code>SETUP.md</code> §
+          "Background Sync". When configured, this takes over from the
+          in-browser scan: open the dashboard and findings are already
+          there.
+        </p>
+        <div class="field">
+          <label for="bg-url">Apps Script Web App URL</label>
+          <input type="text" id="bg-url" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="bg-secret">Shared Secret</label>
+          <input type="text" id="bg-secret" placeholder="from setup() logs" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="sync-actions" style="margin-top: 8px;">
+          <button class="btn-ghost" id="bg-test-btn">Test connection</button>
+          <button class="btn-primary" id="bg-fetch-btn">Fetch latest now</button>
+        </div>
+        <div class="sync-status" id="bg-status">Not configured.</div>
+      </section>
+
       <section class="panel" id="gmail-scan-panel" hidden>
         <h2>Scan Inbox <span class="count" id="gmail-last-scan">never scanned</span></h2>
         <div class="sync-grid">
@@ -893,14 +918,16 @@
             importedThreadIds: Array.isArray(g.importedThreadIds) ? g.importedThreadIds : [],
             threadToAppId: g.threadToAppId && typeof g.threadToAppId === 'object' ? g.threadToAppId : {},
             lastScanAt: g.lastScanAt || null,
-            autoScan: g.autoScan === true
+            autoScan: g.autoScan === true,
+            appsScriptUrl: typeof g.appsScriptUrl === 'string' ? g.appsScriptUrl : '',
+            appsScriptSecret: typeof g.appsScriptSecret === 'string' ? g.appsScriptSecret : ''
           }
         };
       }
     } catch (e) { /* fall through */ }
     return {
       applications: [], sessions: [], activeSession: null, goalSalary: null,
-      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false }
+      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, appsScriptUrl: '', appsScriptSecret: '' }
     };
   }
 
@@ -2013,6 +2040,132 @@
     renderSyncBadge();
   });
 
+  // ---- Background Sync (Apps Script) ----
+
+  function setBgStatus(text, kind) {
+    const el = document.getElementById('bg-status');
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+
+  // Hydrate inputs + persist on change.
+  const bgUrlInput = document.getElementById('bg-url');
+  const bgSecretInput = document.getElementById('bg-secret');
+  bgUrlInput.value = state.gmail.appsScriptUrl || '';
+  bgSecretInput.value = state.gmail.appsScriptSecret || '';
+  let bgSaveTimer = null;
+  function persistBgInputs() {
+    state.gmail.appsScriptUrl = bgUrlInput.value.trim();
+    state.gmail.appsScriptSecret = bgSecretInput.value.trim();
+    clearTimeout(bgSaveTimer);
+    bgSaveTimer = setTimeout(save, 250);
+  }
+  bgUrlInput.addEventListener('input', persistBgInputs);
+  bgSecretInput.addEventListener('input', persistBgInputs);
+
+  // Adapter: Apps Script returns flat objects; classifier expects gapi shape.
+  function appsScriptThreadToGapi(t) {
+    return {
+      threadId: t.threadId,
+      id: t.messageId,
+      snippet: t.snippet || '',
+      internalDate: String(t.internalDate || 0),
+      payload: {
+        headers: [
+          { name: 'From',    value: t.from || '' },
+          { name: 'Subject', value: t.subject || '' },
+          { name: 'Date',    value: t.date || '' }
+        ]
+      }
+    };
+  }
+
+  async function fetchFromAppsScript(opts) {
+    opts = opts || {};
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      if (!opts.silent) setBgStatus('Paste both URL and secret first.', 'error');
+      return;
+    }
+    if (gmailScanning) return;
+    gmailScanning = true;
+    if (!opts.silent) setBgStatus('Fetching from Apps Script…', 'busy');
+    try {
+      const resp = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=' + (opts.rescan ? 'rescan' : 'results') +
+        '&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      if (!Array.isArray(data.threads)) throw new Error('Malformed response');
+
+      gmailLastResults = [];
+      for (const t of data.threads) {
+        const adapted = appsScriptThreadToGapi(t);
+        const parsed = classifyGmailMessage(adapted);
+        const existingAppId = state.gmail.threadToAppId[t.threadId] || null;
+        const isDup = state.gmail.importedThreadIds.indexOf(t.threadId) !== -1 || !!existingAppId;
+        gmailLastResults.push({
+          threadId: t.threadId, messageId: t.messageId,
+          internalDate: Number(t.internalDate || 0),
+          parsed, isDup, existingAppId
+        });
+      }
+      gmailLastResults.sort((a, b) => b.internalDate - a.internalDate);
+      gmailSelected = new Set();
+      for (const r of gmailLastResults) {
+        if (!r.isDup) gmailSelected.add(r.threadId);
+        else if (r.existingAppId) {
+          const app = state.applications.find(a => a.id === r.existingAppId);
+          if (app && shouldUpgradeStatus(app.status, r.parsed.status)) {
+            gmailSelected.add(r.threadId);
+          }
+        }
+      }
+      state.gmail.lastScanAt = new Date().toISOString();
+      save();
+      renderGmailResults();
+      renderSyncBadge();
+      const ts = data.scannedAt ? new Date(data.scannedAt).toLocaleString() : 'now';
+      const msg = 'Got ' + gmailLastResults.length + ' threads · server scanned ' + ts +
+                  (gmailSelected.size ? ' · ' + gmailSelected.size + ' awaiting review' : '');
+      setBgStatus(msg, 'ok');
+    } catch (e) {
+      console.error(e);
+      if (!opts.silent) setBgStatus('Fetch failed: ' + e.message, 'error');
+    } finally {
+      gmailScanning = false;
+    }
+  }
+
+  document.getElementById('bg-test-btn').addEventListener('click', async function () {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) { setBgStatus('Paste both URL and secret first.', 'error'); return; }
+    setBgStatus('Pinging…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=ping&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      if (!data.ok) throw new Error('Unexpected response');
+      const last = data.scannedAt ? ' · last server scan ' + new Date(data.scannedAt).toLocaleString() : ' · server hasn\'t scanned yet';
+      setBgStatus('Connected' + last, 'ok');
+    } catch (e) {
+      setBgStatus('Connection failed: ' + e.message, 'error');
+    }
+  });
+
+  document.getElementById('bg-fetch-btn').addEventListener('click', () => fetchFromAppsScript({ silent: false }));
+
   // ---- Auto-scan plumbing ----
 
   // Show a count of unreviewed pre-selected items on the Gmail Sync nav link.
@@ -2093,8 +2246,16 @@
   renderSyncStatus();
   renderSyncBadge();
 
-  // Periodically check whether GIS has loaded so we can enable the Sign-in
-  // button (and kick off an auto-scan if the user opted in).
+  // Page-load data source priority:
+  //   1. If Apps Script Background Sync is configured, fetch from it.
+  //      (Server has already scanned in the background.)
+  //   2. Otherwise, if Auto-scan is on AND the user has signed in
+  //      previously, do a silent in-browser scan once GIS is ready.
+  const hasBgSync = !!(state.gmail.appsScriptUrl && state.gmail.appsScriptSecret);
+  if (hasBgSync) {
+    fetchFromAppsScript({ silent: true });
+  }
+
   let gisReadyChecks = 0;
   const gisReadyInterval = setInterval(() => {
     gisReadyChecks++;
@@ -2102,7 +2263,7 @@
       initGmailTokenClient();
       renderSyncStatus();
       clearInterval(gisReadyInterval);
-      tryAutoScan();
+      if (!hasBgSync) tryAutoScan();
     } else if (gisReadyChecks > 40) { // ~20s
       clearInterval(gisReadyInterval);
     }

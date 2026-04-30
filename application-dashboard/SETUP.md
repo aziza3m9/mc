@@ -114,6 +114,72 @@ component, e.g. Google Apps Script on a time trigger.
 - To revoke access at any time: dashboard's **Sign out** button, or
   go to <https://myaccount.google.com/permissions>.
 
+## Background Sync (truly hands-off, optional)
+
+The OAuth path above only syncs while the dashboard is open. If you
+want Gmail scanned **even when your laptop is closed**, set up the
+Apps Script companion. It runs on Google's infrastructure on a 15-min
+timer.
+
+This is independent of the OAuth path. You can use either, or both.
+When Background Sync is configured, the dashboard fetches from it on
+load (instead of running the in-browser scanner).
+
+### One-time Apps Script setup (~5 min)
+
+1. Open <https://script.google.com> → **New project**.
+2. Open `application-dashboard/apps-script/Code.gs` from this repo.
+   Copy its contents and paste into the Apps Script editor (replacing
+   the default `myFunction` stub).
+3. Click the disk icon to save. Name the project anything, e.g.
+   `Application Dashboard Sync`.
+4. From the function dropdown at the top, select **`setup`**, then
+   click **Run**.
+   - First run prompts for **Gmail read** permission. Approve.
+   - You'll see an "unverified app" warning — same as for the OAuth
+     path, for the same reason. Click **Advanced → Go to ... (unsafe)**.
+5. Open **View → Logs** (or **Executions**) and copy the **Shared
+   SECRET** that was printed.
+6. Click **Deploy → New deployment**. In the gear icon, choose
+   **Web app**.
+   - **Description:** anything, e.g. "v1"
+   - **Execute as:** *Me (your-email@gmail.com)*
+   - **Who has access:** *Anyone*
+   - Click **Deploy**. Approve the additional permission dialog.
+   - Copy the **Web app URL** (it ends in `/exec`).
+7. In the dashboard, go to **Gmail Sync → Background Sync**:
+   - Paste the **Web app URL**
+   - Paste the **SECRET**
+   - Click **Test connection** — you should see "Connected · last
+     server scan ...".
+
+That's it. From now on, every time you open the dashboard, it pulls
+the latest scan from Apps Script. The scan itself runs every 15 min
+in the background regardless of whether the dashboard is open.
+
+### Apps Script management
+
+- **Lost your secret?** In the script editor, run **`showSecret`** —
+  it logs the existing secret without changing it.
+- **Suspect a leak?** Run **`rotateSecret`** — generates a new one.
+  Re-paste it into the dashboard.
+- **Want to disable?** In the script editor: **Triggers** (clock
+  icon in left sidebar) → delete the `scanInbox` trigger. Or
+  **Deploy → Manage deployments → Archive**.
+
+### Privacy & security
+
+- The script runs **as you**. It only reads your own inbox.
+- The Web app URL is publicly reachable, but every request must
+  include `?token=<SECRET>`. Without the secret, the endpoint returns
+  `{error: 'unauthorized'}`.
+- The dashboard stores the URL and secret in `localStorage` so it can
+  pull on page load. Treat that browser profile like you'd treat any
+  device with your email — locking the screen / using a strong device
+  password are the right defenses.
+- The fetched results never leave your browser after that. Imports
+  go straight into local state.
+
 ## Troubleshooting
 
 - **"redirect_uri_mismatch" / "origin_mismatch"** — the page you're
@@ -126,3 +192,17 @@ component, e.g. Google Apps Script on a time trigger.
 - **"Could not load Google API"** — your browser blocked the
   `apis.google.com` or `accounts.google.com` script. Disable the
   blocker on this page and refresh.
+
+### Background Sync issues
+
+- **"Connection failed: HTTP 401" / "unauthorized"** — wrong secret.
+  Run `showSecret` in the Apps Script editor and re-paste.
+- **"Connection failed: HTTP 403"** — deployment access isn't set to
+  *Anyone*. Edit the deployment via **Deploy → Manage deployments →
+  pencil icon → Who has access: Anyone**.
+- **"NetworkError" / CORS error** — happens if you redeployed and got
+  a new URL. Update the URL field with the latest `/exec` URL from
+  **Manage deployments**.
+- **Trigger isn't firing** — check **Triggers** in the script editor.
+  The `scanInbox` trigger should be listed. If quota is exhausted
+  (rare for personal use), Google retries on the next interval.
