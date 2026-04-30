@@ -2203,7 +2203,10 @@
   // could plausibly be the platform itself, the real employer wasn't
   // extracted.
   const PLATFORM_HEAD_RE = /^(?:indeed|linked\s*in|zip\s*recruiter|glass\s*door|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smart\s*recruiters|icims|workday|jobvite|bamboo\s*hr|team\s*tailor|gmail|google|notifications|jobs|careers|no.?reply|apply|the\s+team)\b/i;
-  const PLATFORM_TAIL_RE = /^(?:[.,]?\s*(?:apply|jobs|hiring|recruiting|careers|team|inc\.?|llc\.?|ltd\.?|corp\.?|com|net|io|co|workspace|account|cloud|play|notifications|hire|hires|talent))*\s*$/i;
+  // Tail allows hyphen / period / space separators and catches the
+  // wider set of suffix tokens like "-mail" (greenhouse-mail),
+  // "-noreply", "alerts", "support", etc.
+  const PLATFORM_TAIL_RE = /^(?:[.,\-]?\s*(?:apply|jobs|hiring|recruiting|careers|team|inc\.?|llc\.?|ltd\.?|corp\.?|com|net|io|co|workspace|account|cloud|play|notifications|hire|hires|talent|mail|alerts|support|notify|no.?reply))*\s*$/i;
   function isPlatformCompanyName(s) {
     if (!s) return false;
     s = String(s).trim();
