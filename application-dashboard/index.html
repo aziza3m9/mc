@@ -412,6 +412,43 @@
   .worker-totals .pill .name { color: var(--text); font-weight: 700; }
   .worker-totals .pill .hrs  { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
 
+  /* Timesheet calendar navigator */
+  .cal-toolbar {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .cal-nav { display: flex; gap: 4px; align-items: center; }
+  .cal-nav button { min-width: 40px; }
+  .cal-jump {
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 6px;
+    font-family: inherit; font-size: 12px;
+    color-scheme: dark;
+  }
+  .cal-mode {
+    display: inline-flex; padding: 3px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    margin-left: auto;
+  }
+  .cal-mode-btn {
+    background: transparent; color: var(--muted);
+    padding: 6px 14px; font-size: 12px; font-weight: 600;
+    border-radius: 5px; letter-spacing: .04em;
+    border: none; cursor: pointer; transition: background .15s ease, color .15s ease;
+  }
+  .cal-mode-btn:hover { color: var(--text); }
+  .cal-mode-btn.active {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #07090f;
+    box-shadow: 0 0 0 1px rgba(94,229,255,.3);
+  }
+  .cal-range {
+    font-size: 18px; font-weight: 700; color: var(--text);
+    letter-spacing: -.01em;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
 
   /* Insights view */
   .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
@@ -810,8 +847,26 @@
         </div>
       </div>
 
+      <section class="panel" id="timesheet-cal-panel">
+        <h2>Browse by date <span class="count" id="cal-stats">—</span></h2>
+        <div class="cal-toolbar">
+          <div class="cal-nav">
+            <button class="btn-ghost btn-sm" data-cal-shift="prev">‹</button>
+            <button class="btn-ghost btn-sm" data-cal-shift="today">Today</button>
+            <button class="btn-ghost btn-sm" data-cal-shift="next">›</button>
+            <input type="date" id="cal-jump" class="cal-jump" />
+          </div>
+          <div class="cal-mode" role="tablist">
+            <button class="cal-mode-btn" data-cal-mode="day"   role="tab">Day</button>
+            <button class="cal-mode-btn active" data-cal-mode="week"  role="tab">Week</button>
+            <button class="cal-mode-btn" data-cal-mode="month" role="tab">Month</button>
+          </div>
+        </div>
+        <div class="cal-range" id="cal-range">—</div>
+      </section>
+
       <section class="panel">
-        <h2>Recent Sessions <span class="count" id="sessions-count">0</span></h2>
+        <h2>Sessions <span class="count" id="sessions-count">0</span></h2>
         <div id="sessions-list" class="sessions"></div>
       </section>
     </section>
@@ -1411,6 +1466,99 @@
 
   // Total time per worker for the past 7 days. Includes the active
   // session's contribution. Returns a sorted array of {name, ms}.
+  // Timesheet date navigator state — non-persisted UI state.
+  // mode: 'day' | 'week' | 'month'
+  // anchor: any date inside the currently-viewed range
+  let timesheetView = { mode: 'week', anchor: new Date() };
+
+  function getRangeBounds(view) {
+    const a = new Date(view.anchor);
+    let start, end;
+    if (view.mode === 'day') {
+      start = new Date(a); start.setHours(0, 0, 0, 0);
+      end   = new Date(a); end.setHours(23, 59, 59, 999);
+    } else if (view.mode === 'week') {
+      start = new Date(a);
+      start.setDate(a.getDate() - a.getDay()); // Sunday
+      start.setHours(0, 0, 0, 0);
+      end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+    } else { // month
+      start = new Date(a.getFullYear(), a.getMonth(), 1, 0, 0, 0, 0);
+      end   = new Date(a.getFullYear(), a.getMonth() + 1, 0, 23, 59, 59, 999);
+    }
+    return { start, end };
+  }
+
+  function shiftRange(direction) {
+    if (direction === 'today') {
+      timesheetView.anchor = new Date();
+    } else {
+      const dir = direction === 'next' ? 1 : -1;
+      const a = new Date(timesheetView.anchor);
+      if (timesheetView.mode === 'day')   a.setDate(a.getDate() + dir);
+      if (timesheetView.mode === 'week')  a.setDate(a.getDate() + 7 * dir);
+      if (timesheetView.mode === 'month') a.setMonth(a.getMonth() + dir);
+      timesheetView.anchor = a;
+    }
+    renderSessions();
+  }
+
+  function setRangeMode(mode) {
+    if (mode === timesheetView.mode) return;
+    timesheetView.mode = mode;
+    renderSessions();
+  }
+
+  function jumpToDate(yyyymmdd) {
+    if (!yyyymmdd) return;
+    const d = new Date(yyyymmdd + 'T00:00:00');
+    if (isNaN(d.getTime())) return;
+    timesheetView.anchor = d;
+    renderSessions();
+  }
+
+  function renderTimesheetCalendar() {
+    const calRange = document.getElementById('cal-range');
+    if (!calRange) return; // Sync view doesn't have it
+    const { start, end } = getRangeBounds(timesheetView);
+    const fmt  = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    const fmtNoY = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const mfmt = (d) => d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    let label;
+    if (timesheetView.mode === 'day')        label = fmt(start);
+    else if (timesheetView.mode === 'week') {
+      const sameYear = start.getFullYear() === end.getFullYear();
+      label = sameYear ? fmtNoY(start) + ' – ' + fmt(end) : fmt(start) + ' – ' + fmt(end);
+    }
+    else                                     label = mfmt(start);
+    calRange.textContent = label;
+
+    // Stats: sum sessions overlapping the range
+    let ms = 0, count = 0;
+    const sMs = start.getTime(), eMs = end.getTime();
+    for (const s of state.sessions) {
+      if (s.end < sMs || s.start > eMs) continue;
+      ms += Math.min(s.end, eMs) - Math.max(s.start, sMs);
+      count++;
+    }
+    if (state.activeSession && state.activeSession.start <= eMs && Date.now() >= sMs) {
+      ms += Math.min(Date.now(), eMs) - Math.max(state.activeSession.start, sMs);
+      count++;
+    }
+    document.getElementById('cal-stats').textContent =
+      formatHrsMins(ms) + ' · ' + count + ' session' + (count === 1 ? '' : 's');
+
+    document.querySelectorAll('.cal-mode-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.calMode === timesheetView.mode);
+    });
+    const jump = document.getElementById('cal-jump');
+    if (jump && document.activeElement !== jump) {
+      jump.value = new Date(timesheetView.anchor).toISOString().slice(0, 10);
+    }
+  }
+
   function computeWorkerTotals() {
     const horizon = Date.now() - 7 * 86400000;
     const totals = new Map();
@@ -1438,11 +1586,22 @@
   }
 
   function renderSessions() {
+    renderTimesheetCalendar();
     const list = document.getElementById('sessions-list');
     list.innerHTML = '';
-    const all = state.sessions.slice(0, 30);
+    // Filter sessions to the selected calendar range. Active session
+    // is included only when the range covers "now".
+    const { start, end } = getRangeBounds(timesheetView);
+    const sMs = start.getTime(), eMs = end.getTime();
+    const inRange = state.sessions
+      .filter(s => s.end >= sMs && s.start <= eMs)
+      .sort((a, b) => b.start - a.start)
+      .slice(0, 60);
+    const showLive = state.activeSession &&
+      state.activeSession.start <= eMs && Date.now() >= sMs;
+    const all = inRange;
     document.getElementById('sessions-count').textContent =
-      state.sessions.length + (state.activeSession ? 1 : 0);
+      inRange.length + (showLive ? 1 : 0);
 
     // Per-worker totals for the past 7 days (skip if there's no real
     // worker data yet — empty state still gets the helpful note).
@@ -1458,7 +1617,7 @@
     }
 
     // Live session card on top
-    if (state.activeSession) {
+    if (showLive) {
       const start = new Date(state.activeSession.start);
       const div = document.createElement('div');
       div.className = 'session-row live';
@@ -1478,11 +1637,11 @@
       list.appendChild(div);
     }
 
-    if (!all.length && !state.activeSession) {
+    if (!all.length && !showLive) {
       const div = document.createElement('div');
       div.className = 'empty';
       div.style.padding = '16px 8px';
-      div.textContent = 'No sessions yet. Clock in to start tracking.';
+      div.textContent = 'No sessions in this range. Use ‹ › to browse other periods, or click Today.';
       list.appendChild(div);
       return;
     }
@@ -1781,6 +1940,21 @@
   // ---------- Wire up ----------
   document.getElementById('clock-in-btn').addEventListener('click', clockIn);
   document.getElementById('clock-out-btn').addEventListener('click', clockOut);
+
+  // Calendar navigator wiring
+  document.querySelectorAll('[data-cal-shift]').forEach(btn => {
+    btn.addEventListener('click', () => shiftRange(btn.dataset.calShift));
+  });
+  document.querySelectorAll('[data-cal-mode]').forEach(btn => {
+    btn.addEventListener('click', () => setRangeMode(btn.dataset.calMode));
+  });
+  const jumpEl = document.getElementById('cal-jump');
+  if (jumpEl) jumpEl.addEventListener('change', (e) => jumpToDate(e.target.value));
+
+  // Default worker name to "Anne" on first load if the field is empty
+  // and we're not already inside a session. Single-worker convenience.
+  const _name = document.getElementById('session-name');
+  if (_name && !_name.value && !state.activeSession) _name.value = 'Anne';
 
   // View routing
   const validViews = ['applications', 'timesheet', 'insights', 'sync'];
