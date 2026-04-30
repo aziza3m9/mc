@@ -267,7 +267,6 @@
   .session-row .v.duration { font-weight: 700; }
   .session-row .live-tag { color: var(--green); font-weight: 700; font-size: 12px; }
 
-  .footer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
 
   /* Insights view */
   .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
@@ -526,11 +525,6 @@
         <div>
           <h1>Application Dashboard</h1>
           <div class="subtitle">Track applications, interviews, assessments &amp; rejections</div>
-        </div>
-        <div class="footer-actions">
-          <button class="btn-ghost btn-sm" id="export-btn">Export JSON</button>
-          <button class="btn-ghost btn-sm" id="import-btn">Import</button>
-          <input type="file" id="import-file" accept="application/json" hidden />
         </div>
       </header>
 
@@ -1545,46 +1539,6 @@
     chip.classList.add('active');
     activeFilter = chip.dataset.filter;
     renderApps();
-  });
-
-  document.getElementById('export-btn').addEventListener('click', function () {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'applications-' + new Date().toISOString().slice(0, 10) + '.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-
-  document.getElementById('import-btn').addEventListener('click', function () {
-    document.getElementById('import-file').click();
-  });
-  document.getElementById('import-file').addEventListener('change', function (e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function () {
-      try {
-        const data = JSON.parse(reader.result);
-        if (!confirm('Replace current data with imported file?')) return;
-        state.applications = (Array.isArray(data.applications) ? data.applications : []).map(migrateApp);
-        state.sessions = Array.isArray(data.sessions) ? data.sessions : [];
-        state.activeSession = data.activeSession || null;
-        state.goalSalary = Number(data.goalSalary) > 0 ? Number(data.goalSalary) : null;
-        expanded.clear();
-        save();
-        renderStats();
-        renderApps();
-        renderSessions();
-        updateClockUI();
-        refreshInsightsIfActive();
-      } catch (err) {
-        alert('Invalid JSON file.');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
   });
 
   /* =================================================================
