@@ -175,7 +175,7 @@
   .panel h2 .count { color: var(--muted); font-weight: 500; font-size: 12px; }
 
   /* Form */
-  .form-grid { display: grid; grid-template-columns: 1.4fr 1.4fr 1fr 1fr auto; gap: 10px; }
+  .form-grid { display: grid; grid-template-columns: 1.3fr 1.3fr .9fr 1fr 1fr auto; gap: 10px; }
   @media (max-width: 800px) { .form-grid { grid-template-columns: 1fr 1fr; } .form-grid > button { grid-column: 1 / -1; } }
   input, select, textarea {
     width: 100%;
@@ -251,6 +251,47 @@
   .session-row .live-tag { color: var(--green); font-weight: 700; font-size: 12px; }
 
   .footer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+
+  /* Insights view */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+  @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .kpi {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .kpi .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+  .kpi .val { font-size: 26px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .kpi.avg .val { color: var(--accent); }
+  .kpi.high .val { color: var(--green); }
+  .kpi.low .val { color: var(--amber); }
+  .kpi.rate .val { color: var(--blue); }
+
+  .insights-row { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .insights-row { grid-template-columns: 1fr; } }
+
+  .bar-chart { display: flex; flex-direction: column; gap: 10px; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 60px; align-items: center; gap: 12px; font-size: 13px; }
+  .bar-row .name { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .bar-row .track { background: var(--panel-2); border-radius: 999px; height: 10px; overflow: hidden; }
+  .bar-row .fill { height: 100%; border-radius: 999px; transition: width .3s ease; min-width: 2px; }
+  .bar-row .fill.applied    { background: #b6bccb; }
+  .bar-row .fill.interview  { background: var(--blue); }
+  .bar-row .fill.assessment { background: var(--amber); }
+  .bar-row .fill.offer      { background: var(--green); }
+  .bar-row .fill.rejected   { background: var(--red); }
+  .bar-row .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .salary-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+  .salary-item {
+    display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel-2); font-size: 13px;
+  }
+  .salary-item .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .salary-item .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -273,6 +314,10 @@
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       <span>Time Tracker</span>
       <span class="live-pill"></span>
+    </a>
+    <a class="nav-link" data-view="insights" href="#insights">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+      <span>Insights</span>
     </a>
   </nav>
 
@@ -306,6 +351,7 @@
         <form id="add-form" class="form-grid">
           <input type="text" id="f-company" placeholder="Company" required />
           <input type="text" id="f-role" placeholder="Role / Title" required />
+          <input type="number" id="f-salary" placeholder="Salary (USD/yr)" min="0" step="1000" />
           <input type="date" id="f-date" />
           <select id="f-status">
             <option value="applied">Applied</option>
@@ -334,6 +380,7 @@
               <tr>
                 <th>Company</th>
                 <th>Role</th>
+                <th>Salary</th>
                 <th>Date</th>
                 <th>Status</th>
                 <th></th>
@@ -393,6 +440,56 @@
       <section class="panel">
         <h2>Recent Sessions <span class="count" id="sessions-count">0</span></h2>
         <div id="sessions-list" class="sessions"></div>
+      </section>
+    </section>
+
+    <!-- VIEW: INSIGHTS -->
+    <section class="view" id="view-insights">
+      <header class="app-head">
+        <div>
+          <h1>Insights</h1>
+          <div class="subtitle">Salary trends and pipeline analytics across your applications</div>
+        </div>
+      </header>
+
+      <section class="kpi-grid">
+        <div class="kpi avg">
+          <div class="lbl">Average Salary</div>
+          <div class="val" id="kpi-avg">—</div>
+          <div class="sub" id="kpi-avg-sub">across applications with salary</div>
+        </div>
+        <div class="kpi high">
+          <div class="lbl">Highest</div>
+          <div class="val" id="kpi-high">—</div>
+          <div class="sub" id="kpi-high-sub">—</div>
+        </div>
+        <div class="kpi low">
+          <div class="lbl">Lowest</div>
+          <div class="val" id="kpi-low">—</div>
+          <div class="sub" id="kpi-low-sub">—</div>
+        </div>
+        <div class="kpi rate">
+          <div class="lbl">Interview Rate</div>
+          <div class="val" id="kpi-rate">—</div>
+          <div class="sub" id="kpi-rate-sub">interview+ over total</div>
+        </div>
+      </section>
+
+      <div class="insights-row">
+        <section class="panel">
+          <h2>Pipeline Breakdown <span class="count" id="insights-total">0 total</span></h2>
+          <div class="bar-chart" id="status-chart"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Average Salary by Status</h2>
+          <div class="bar-chart" id="salary-by-status"></div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <h2>Top Salaries <span class="count" id="top-salary-count">0</span></h2>
+        <div id="top-salary-list" class="salary-list"></div>
       </section>
     </section>
 
@@ -562,7 +659,7 @@
 
     if (!filtered.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="5" class="empty">No applications yet. Add one above to get started.</td>';
+      tr.innerHTML = '<td colspan="6" class="empty">No applications yet. Add one above to get started.</td>';
       body.appendChild(tr);
       return;
     }
@@ -573,6 +670,7 @@
       tr.innerHTML =
         '<td><b>' + escapeHtml(a.company) + '</b></td>' +
         '<td>' + escapeHtml(a.role) + '</td>' +
+        '<td>' + (a.salary ? formatSalary(a.salary) : '—') + '</td>' +
         '<td>' + (a.date || '—') + '</td>' +
         '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
         '<td><div class="row-actions">' +
@@ -585,6 +683,13 @@
         '</div></td>';
       body.appendChild(tr);
     }
+  }
+
+  function formatSalary(n) {
+    const v = Number(n);
+    if (!isFinite(v) || v <= 0) return '—';
+    if (v >= 1000) return '$' + Math.round(v / 1000) + 'k';
+    return '$' + v.toLocaleString();
   }
 
   function escapeHtml(s) {
@@ -639,16 +744,109 @@
     }
   }
 
+  // ---------- Insights ----------
+  function renderInsights() {
+    const apps = state.applications;
+    const total = apps.length;
+    document.getElementById('insights-total').textContent = total + ' total';
+
+    // Pipeline breakdown bars
+    const statuses = ['applied','interview','assessment','offer','rejected'];
+    const counts = { applied: 0, interview: 0, assessment: 0, offer: 0, rejected: 0 };
+    for (const a of apps) if (counts[a.status] !== undefined) counts[a.status]++;
+    const max = Math.max(1, ...statuses.map(s => counts[s]));
+    const chart = document.getElementById('status-chart');
+    chart.innerHTML = statuses.map(s => {
+      const pct = (counts[s] / max) * 100;
+      return '<div class="bar-row">' +
+        '<span class="name">' + statusLabel(s) + '</span>' +
+        '<span class="track"><span class="fill ' + s + '" style="width:' + pct + '%"></span></span>' +
+        '<span class="num">' + counts[s] + '</span>' +
+      '</div>';
+    }).join('');
+
+    // Salary KPIs (only consider apps with a positive salary)
+    const withSalary = apps.filter(a => Number(a.salary) > 0);
+    const salaries = withSalary.map(a => Number(a.salary));
+    if (salaries.length) {
+      const avg = salaries.reduce((sum, n) => sum + n, 0) / salaries.length;
+      const high = withSalary.reduce((best, a) => Number(a.salary) > Number(best.salary) ? a : best, withSalary[0]);
+      const low = withSalary.reduce((worst, a) => Number(a.salary) < Number(worst.salary) ? a : worst, withSalary[0]);
+      document.getElementById('kpi-avg').textContent = formatSalary(avg);
+      document.getElementById('kpi-avg-sub').textContent = salaries.length + ' of ' + total + ' application(s) with salary';
+      document.getElementById('kpi-high').textContent = formatSalary(high.salary);
+      document.getElementById('kpi-high-sub').textContent = high.company + ' · ' + high.role;
+      document.getElementById('kpi-low').textContent = formatSalary(low.salary);
+      document.getElementById('kpi-low-sub').textContent = low.company + ' · ' + low.role;
+    } else {
+      document.getElementById('kpi-avg').textContent = '—';
+      document.getElementById('kpi-avg-sub').textContent = 'Add a salary to see metrics';
+      document.getElementById('kpi-high').textContent = '—';
+      document.getElementById('kpi-high-sub').textContent = '—';
+      document.getElementById('kpi-low').textContent = '—';
+      document.getElementById('kpi-low-sub').textContent = '—';
+    }
+
+    // Interview rate (interview + assessment + offer) / total
+    const advanced = counts.interview + counts.assessment + counts.offer;
+    const rate = total ? Math.round((advanced / total) * 100) : 0;
+    document.getElementById('kpi-rate').textContent = total ? rate + '%' : '—';
+    document.getElementById('kpi-rate-sub').textContent = advanced + ' of ' + total + ' advanced past applied';
+
+    // Average salary per status
+    const salaryByStatus = document.getElementById('salary-by-status');
+    const statusAverages = statuses.map(s => {
+      const group = withSalary.filter(a => a.status === s).map(a => Number(a.salary));
+      const a = group.length ? group.reduce((sum, n) => sum + n, 0) / group.length : 0;
+      return { status: s, avg: a, count: group.length };
+    });
+    const maxAvg = Math.max(1, ...statusAverages.map(r => r.avg));
+    salaryByStatus.innerHTML = statusAverages.map(r => {
+      const pct = (r.avg / maxAvg) * 100;
+      return '<div class="bar-row">' +
+        '<span class="name">' + statusLabel(r.status) + '</span>' +
+        '<span class="track"><span class="fill ' + r.status + '" style="width:' + pct + '%"></span></span>' +
+        '<span class="num">' + (r.count ? formatSalary(r.avg) : '—') + '</span>' +
+      '</div>';
+    }).join('');
+
+    // Top salaries list
+    const top = withSalary.slice().sort((a, b) => Number(b.salary) - Number(a.salary)).slice(0, 10);
+    document.getElementById('top-salary-count').textContent = top.length;
+    const list = document.getElementById('top-salary-list');
+    if (!top.length) {
+      list.innerHTML = '<div class="empty" style="padding:16px 8px;">No salaries logged yet. Add a salary to an application to see it here.</div>';
+    } else {
+      list.innerHTML = top.map(a =>
+        '<div class="salary-item">' +
+          '<div>' +
+            '<div><b>' + escapeHtml(a.company) + '</b> · ' + escapeHtml(a.role) + '</div>' +
+            '<div class="meta">' + statusLabel(a.status) + (a.date ? ' · ' + a.date : '') + '</div>' +
+          '</div>' +
+          '<div class="amt">' + formatSalary(a.salary) + '</div>' +
+        '</div>'
+      ).join('');
+    }
+  }
+
+  // Re-render insights after any state change if the view is currently visible
+  function refreshInsightsIfActive() {
+    const v = document.getElementById('view-insights');
+    if (v && v.classList.contains('active')) renderInsights();
+  }
+
   // ---------- Wire up ----------
   document.getElementById('clock-in-btn').addEventListener('click', clockIn);
   document.getElementById('clock-out-btn').addEventListener('click', clockOut);
 
   // View routing
+  const validViews = ['applications', 'timesheet', 'insights'];
   function setView(name) {
-    if (name !== 'timesheet') name = 'applications';
+    if (!validViews.includes(name)) name = 'applications';
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
     document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.view === name));
     if (history.replaceState) history.replaceState(null, '', '#' + name);
+    if (name === 'insights') renderInsights();
   }
   document.querySelectorAll('.nav-link').forEach(l => {
     l.addEventListener('click', function (e) {
@@ -663,15 +861,19 @@
     e.preventDefault();
     const company = document.getElementById('f-company').value.trim();
     const role = document.getElementById('f-role').value.trim();
+    const salaryRaw = document.getElementById('f-salary').value;
+    const salary = salaryRaw === '' ? null : Number(salaryRaw);
     const date = document.getElementById('f-date').value || new Date().toISOString().slice(0, 10);
     const status = document.getElementById('f-status').value;
     if (!company || !role) return;
-    state.applications.unshift({ id: uid(), company, role, date, status });
+    state.applications.unshift({ id: uid(), company, role, salary, date, status });
     save();
     e.target.reset();
     document.getElementById('f-status').value = 'applied';
+    document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
     renderStats();
     renderApps();
+    refreshInsightsIfActive();
   });
 
   document.getElementById('apps-body').addEventListener('change', function (e) {
@@ -684,6 +886,7 @@
     save();
     renderStats();
     renderApps();
+    refreshInsightsIfActive();
   });
 
   document.getElementById('apps-body').addEventListener('click', function (e) {
@@ -695,6 +898,7 @@
     save();
     renderStats();
     renderApps();
+    refreshInsightsIfActive();
   });
 
   document.getElementById('sessions-list').addEventListener('click', function (e) {
@@ -746,6 +950,7 @@
         renderApps();
         renderSessions();
         updateClockUI();
+        refreshInsightsIfActive();
       } catch (err) {
         alert('Invalid JSON file.');
       }

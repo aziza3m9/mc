@@ -1,7 +1,8 @@
 # Application Dashboard
 
-Standalone job application tracker with clock in/out and status tracking
-(Applied / Interview Request / Assessment / Offer / Rejected).
+Standalone job application tracker with clock in/out, status tracking
+(Applied / Interview Request / Assessment / Offer / Rejected), per-application
+salary, and an Insights view with salary KPIs and pipeline charts.
 
 This folder is **completely independent** from anything else in the repo.
 No shared files, no shared dependencies, no shared storage.
