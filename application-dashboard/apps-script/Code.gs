@@ -106,6 +106,30 @@ function rotateSecret() {
  * Walks recent matching threads, returns a flat object per thread.
  * Called by the time trigger and on demand from the web endpoint.
  */
+// Salary regex patterns we run over the FULL plain-text body (Apps
+// Script side has unrestricted access to it). We collect the matched
+// strings and pass them to the dashboard as `salaryRaw` so the
+// client-side parser sees them — no need to ship the whole body.
+const SALARY_PATTERNS = [
+  /\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?\s*[-–—]\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/g,
+  /\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:k|K)?\s*(?:to|-|–|—)\s*\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:k|K)?/g,
+  /up to\s*\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi,
+  /starting at\s*\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi,
+  /(?:salary|compensation|base|total comp(?:ensation)?|pay|pays)\s*[:=]?\s*\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi
+];
+
+function extractSalaryRaw(body) {
+  if (!body) return '';
+  const hits = [];
+  for (const re of SALARY_PATTERNS) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(body)) !== null) hits.push(m[0]);
+  }
+  // Cap to avoid huge payloads if the email is filled with prices.
+  return hits.slice(0, 6).join(' | ');
+}
+
 function scanInbox() {
   const q = SCAN_QUERY + ' newer_than:' + WINDOW_DAYS + 'd';
   const threads = GmailApp.search(q, 0, MAX_THREADS);
@@ -122,7 +146,8 @@ function scanInbox() {
         subject: last.getSubject() || '',
         from: last.getFrom() || '',
         date: last.getDate().toISOString(),
-        snippet: body.slice(0, 240)
+        snippet: body.slice(0, 240),
+        salaryRaw: extractSalaryRaw(body)
       });
     } catch (e) { /* skip individual failures, keep going */ }
   }

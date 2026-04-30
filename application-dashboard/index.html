@@ -805,6 +805,10 @@
           <span>Also auto-apply imports (skip the review step)</span>
           <span class="auto-scan-hint">When on, every scan immediately imports new threads and applies status upgrades — no clicking required. Heuristic mistakes will land in your data; you can still edit/delete rows manually.</span>
         </label>
+        <div class="sync-actions" style="margin-top: 12px;">
+          <button class="btn-ghost btn-sm" id="reclassify-btn">Re-classify all Gmail imports</button>
+          <span class="auto-scan-hint" style="margin-left: 0; flex: 1;">Re-runs the latest classifier (better company/role/salary extraction) against threads you've already imported. Status only upgrades, never downgrades. Manual edits on company/role/source/salary are overwritten.</span>
+        </div>
       </section>
 
       <section class="panel">
@@ -1848,6 +1852,62 @@
   }
 
   // Heuristic classifier — returns { status, source, company, role, date }
+  // Heuristic salary parser. Returns { min, max } in dollars, or null.
+  // Accepts: "$120,000 - $150,000", "$120k-150k", "120,000 to 150,000",
+  //          "up to $150,000", "starting at $120k", etc.
+  // Rejects matches outside a sane band ($20k–$2M) to filter out phone
+  // numbers, dates, and other false positives.
+  function parseSalaryFromText(text) {
+    if (!text) return null;
+    const t = text.replace(/\s+/g, ' ');
+
+    // Helper: turn a number-like string + optional k/K suffix into dollars.
+    const toDollars = (numStr, kFlag) => {
+      let n = parseFloat(String(numStr).replace(/,/g, ''));
+      if (!isFinite(n)) return null;
+      if (kFlag) n *= 1000;
+      // Bare numbers like "120" almost always mean "120k" in salary context.
+      if (n > 0 && n < 1000) n *= 1000;
+      return n;
+    };
+    const inBand = (n) => n != null && n >= 20000 && n <= 2000000;
+
+    // Range form, with explicit dollar sign on at least one side
+    // (avoids "10-15 minutes" etc.)
+    const reRange = /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(k|K)?\s*[-–—]+\s*\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(k|K)?|\$?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?)\s*(k|K)?\s*(?:to|-|–|—)\s*\$?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?)\s*(k|K)?/;
+    const m = t.match(reRange);
+    if (m) {
+      const min = toDollars(m[1] || m[5], m[2] || m[6]);
+      const max = toDollars(m[3] || m[7], m[4] || m[8]);
+      if (inBand(min) && inBand(max) && max >= min) return { min, max };
+    }
+
+    // "up to $150k" → max only
+    const reUpTo = /up to\s*\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(k|K)?/i;
+    const u = t.match(reUpTo);
+    if (u) {
+      const max = toDollars(u[1], u[2]);
+      if (inBand(max)) return { min: null, max };
+    }
+
+    // "starting at $120k" → min only
+    const reStart = /starting at\s*\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(k|K)?/i;
+    const s = t.match(reStart);
+    if (s) {
+      const min = toDollars(s[1], s[2]);
+      if (inBand(min)) return { min, max: null };
+    }
+
+    // "salary: $120,000" / "compensation $120k" → single value, used as max.
+    const reSingle = /(?:salary|compensation|base|total comp(?:ensation)?|pay|pays)\s*[:=]?\s*\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(k|K)?/i;
+    const v = t.match(reSingle);
+    if (v) {
+      const n = toDollars(v[1], v[2]);
+      if (inBand(n)) return { min: null, max: n };
+    }
+    return null;
+  }
+
   function classifyGmailMessage(msg) {
     const headers = {};
     for (const h of (msg.payload && msg.payload.headers) || []) {
@@ -1858,9 +1918,12 @@
     const dateHeader = headers.date || '';
     const snippet = (msg.snippet || '').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"');
     const haystack = (subject + ' ' + snippet).toLowerCase();
+    const subjAndSnip = subject + '. ' + snippet;
+    // Apps Script can pass extra full-body excerpts as `salaryRaw`; the
+    // gapi path doesn't have that, so we fall back to subject+snippet.
+    const bodyForSalary = (msg.salaryRaw || '') + ' ' + subjAndSnip;
 
-    // Status detection — order matters (rejected first because "unfortunately ... interview"
-    // patterns are dominated by the rejection signal).
+    // ----- Status -----
     let status = 'applied';
     if (/(unfortunately|not selected|move forward with other|decided not to|not moving forward|no longer considering|after careful consideration|other candidates whose|regret to inform)/.test(haystack)) {
       status = 'rejected';
@@ -1874,58 +1937,104 @@
       status = 'applied';
     }
 
-    // Domain → source / company
+    // ----- Domain → source -----
     const fromMatch = from.match(/<?([^<\s>]+@[^<\s>]+)>?/);
     const email = fromMatch ? fromMatch[1].toLowerCase() : '';
     const domain = email.includes('@') ? email.split('@')[1] : '';
     const baseDomain = domain.replace(/^.*?([^.]+\.[a-z]+)$/, '$1');
 
+    const isLinkedIn = /(^|\.)linkedin\.com$/.test(domain);
+    const isAts      = /(^|\.)(greenhouse\.io|lever\.co|workable\.com|ashbyhq\.com|breezy\.hr|smartrecruiters\.com|icims\.com|myworkday(jobs)?\.com|jobvite\.com|bamboohr\.com|teamtailor\.com)$/.test(domain);
+    const isJobBoard = /(^|\.)(indeed\.com|ziprecruiter\.com|glassdoor\.com|monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain);
+    const isPlatform = isLinkedIn || isAts || isJobBoard;
+
     let source = 'other';
-    if (/(^|\.)linkedin\.com$/.test(domain)) source = 'linkedin';
-    else if (/(^|\.)(greenhouse\.io|lever\.co|workable\.com|ashbyhq\.com|breezy\.hr|smartrecruiters\.com|icims\.com|myworkday(jobs)?\.com|jobvite\.com|bamboohr\.com|teamtailor\.com)$/.test(domain)) source = 'company';
-    else if (/(^|\.)(indeed\.com|ziprecruiter\.com|glassdoor\.com|monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain)) source = 'other';
-    else if (domain) source = 'company'; // company-controlled domain — likely a direct application
+    if (isLinkedIn) source = 'linkedin';
+    else if (isAts) source = 'company';
+    else if (isJobBoard) source = 'other';
+    else if (domain) source = 'company';
     if (/(recruiter|talent partner|sourcer|^hire@|hiring@)/i.test(from) && source === 'other') source = 'recruiter';
 
-    // Display name from the From header
+    // ----- Display name (with platform-name stripping) -----
     const nameMatch = from.match(/^\s*"?([^"<]+?)"?\s*</);
     let displayName = nameMatch ? nameMatch[1].trim() : '';
     displayName = displayName.replace(/\s+(via|from|at)\s+linkedin.*$/i, '').trim();
     displayName = displayName.replace(/\s+(recruiting|hr|careers|talent|hiring|notifications|team)$/i, '').trim();
+    // Block known platform names so they never become the company.
+    const PLATFORM_NAMES = /^(indeed(\s+apply)?|linkedin|glassdoor|ziprecruiter|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smartrecruiters|icims|workday|jobvite|bamboohr|teamtailor|notifications|jobs|careers|no.?reply|the team)$/i;
+    const looksLikePlatform = PLATFORM_NAMES.test(displayName);
 
-    // Try to extract a real company:
-    //   1. If sender domain is a company domain (not a platform), use that.
-    //   2. Else parse "...at Acme" / "...with Acme" out of subject.
-    //   3. Else fall back to display name.
-    let company = '';
-    const platformDomain = source === 'company'
-      ? /(greenhouse|lever|workable|ashbyhq|breezy|smartrecruiters|icims|myworkday|jobvite|bamboohr|teamtailor)/.test(domain)
-      : true;
-    if (domain && !platformDomain && source !== 'linkedin') {
-      // proper company domain: pull root before TLD
-      const root = baseDomain.split('.')[0];
-      if (root) company = root.charAt(0).toUpperCase() + root.slice(1);
-    }
-    const subjAt = subject.match(/\b(?:at|with|from|@)\s+([A-Z][\w&'.\- ]{1,40}?)(?:[.,!?]|\s*[-–—]|\s+team|\s+regarding|\s+for the|\s*$)/);
-    if (!company && subjAt) company = subjAt[1].trim();
-    if (!company && displayName) company = displayName;
-    company = (company || '').replace(/\s+(team|careers|recruiting|hr|talent|hiring)$/i, '').trim();
-
-    // Role — try common subject patterns
+    // ----- Role extraction (subject + snippet) -----
     const rolePatterns = [
-      /(?:application (?:for|to)|applied to|applying for|the )\s*(?:the\s+)?([A-Z][\w&'.\-/+ ]{2,60}?)\s+(?:position|role|opening|opportunity)/,
-      /(?:position|role|opening) (?:of|for)\s+([A-Z][\w&'.\-/+ ]{2,60}?)(?:\s+at\s+|[.,;]|\s*$)/,
-      /(?:for the|for our)\s+([A-Z][\w&'.\-/+ ]{2,60}?)\s+(?:role|position|opening)/,
-      /(?:you applied to|application for)\s+([A-Z][\w&'.\-/+ ]{2,60}?)(?:\s+at|[.,;]|\s*$)/i
+      // Indeed: "Indeed Application: Senior Engineer", "Application sent: <Title>", "Your application: <Title>"
+      /(?:^|\s)(?:Indeed\s+)?(?:Application(?:\s+(?:sent|update|status))?|Your application):\s*([^.,;:\n]+?)(?:\s+at\s+|\s+via\s+|[.,;]|$)/i,
+      // Body: "Your application for <Title>" — terminator can be a known
+      // word ("at <Company>", "has been ..."), punctuation, or end-of-string.
+      /[Yy]our application (?:for|to)\s+(?:the\s+)?(?:position of\s+)?([^.,;:\n]{2,80}?)(?=\s+(?:at|with|via|has been|was)\b|[.,;]|\s*$)/,
+      // "applied for the X role/position"
+      /(?:applied for|applying for|application for)\s+(?:the\s+)?([^.,;:\n]+?)\s+(?:position|role|opening|opportunity|at\s+)/i,
+      // "the X role/position" / "for our X role"
+      /(?:the|our)\s+([^.,;:\n]+?)\s+(?:role|position|opening)\b/i,
+      // "position of/for/as X"
+      /(?:position|role|opening)\s+(?:of|for|as)\s+([^.,;:\n]+?)(?:\s+at\s+|[.,;]|$)/i,
+      // Subject "<Title> - <Company>" (only if subject has a hyphen split)
+      /^([A-Z][\w&'.\-/+ ()]{2,60}?)\s+[-–—]\s+[A-Z]/
     ];
     let role = '';
     for (const re of rolePatterns) {
-      const m = subject.match(re) || snippet.match(re);
-      if (m) { role = m[1].trim().replace(/\s+at\s+.*$/i, ''); break; }
+      const m = subjAndSnip.match(re);
+      if (m) {
+        const cand = m[1].trim().replace(/\s+at\s+.*$/i, '').replace(/[.,;:!?]+$/, '').trim();
+        if (cand.length >= 2 && cand.length <= 80 && !/^(your|the|a|an|application|update|status)$/i.test(cand)) {
+          role = cand;
+          break;
+        }
+      }
     }
     if (role.length > 80) role = role.slice(0, 80) + '…';
 
-    // Date
+    // ----- Company extraction -----
+    let company = '';
+    // 1. Sender's own company domain wins (when it's not a platform).
+    if (domain && !isPlatform) {
+      const root = baseDomain.split('.')[0];
+      if (root) company = root.charAt(0).toUpperCase() + root.slice(1);
+    }
+    // 2. Pattern matching against subject + snippet.
+    if (!company) {
+      const companyPatterns = [
+        // "...<Title> at Acme has been received" / "at Acme."
+        /\bat\s+([A-Z][\w&'.,\- ]{1,50}?)(?:\s+(?:has|received|via|on|posted|is|hiring|team|via\b)\b|[.,!?]|\s*$)/,
+        // "with Acme"
+        /\bwith\s+([A-Z][\w&'.,\- ]{1,50}?)(?:[.,!?]|\s+team|\s+regarding|\s+about|\s+for|\s*$)/,
+        // "Update from Acme on your application"
+        /(?:Update from|News from|Status update from)\s+([A-Z][\w&'.,\- ]{1,50})/i,
+        // "Application sent to Acme" / "Your application to Acme"
+        /(?:[Aa]pplication\s+(?:sent|submitted)\s+to|[Yy]our application to)\s+([A-Z][\w&'.,\- ]{1,50})/,
+        // "Acme received your application" / "Acme has received"
+        /^([A-Z][\w&'.,\- ]{1,50})\s+(?:has\s+)?received your application/m,
+        // "Thank you from Acme" / "Thanks from Acme"
+        /[Tt]hank(?:s| you)\s+from\s+([A-Z][\w&'.,\- ]{1,50})/
+      ];
+      for (const re of companyPatterns) {
+        const m = subjAndSnip.match(re);
+        if (m) {
+          const cand = m[1].trim().replace(/[.,;:!?]+$/, '');
+          if (!PLATFORM_NAMES.test(cand)) { company = cand; break; }
+        }
+      }
+    }
+    // 3. Display-name fallback (only if it's not a platform stub).
+    if (!company && displayName && !looksLikePlatform) {
+      company = displayName;
+    }
+    company = (company || '').replace(/\s+(team|careers|recruiting|hr|talent|hiring|inc|llc|ltd)\.?$/i, '').trim();
+    company = company.replace(/[.,;:!?]+$/, '').replace(/\s+/g, ' ').trim();
+
+    // ----- Salary -----
+    const sal = parseSalaryFromText(bodyForSalary);
+
+    // ----- Date -----
     let date = '';
     if (msg.internalDate) {
       const d = new Date(Number(msg.internalDate));
@@ -1936,7 +2045,11 @@
       if (!isNaN(d)) date = d.toISOString().slice(0, 10);
     }
 
-    return { status, source, company, role, date, subject, from, snippet };
+    return {
+      status, source, company, role, date, subject, from, snippet,
+      salaryMin: sal ? sal.min : null,
+      salaryMax: sal ? sal.max : null
+    };
   }
 
   function renderGmailResults() {
@@ -2018,12 +2131,15 @@
         if (!existing.source && p.source) existing.source = p.source;
         if (!existing.company && p.company) existing.company = p.company;
         if (!existing.role && p.role) existing.role = p.role;
+        if (existing.salaryMin == null && p.salaryMin != null) existing.salaryMin = p.salaryMin;
+        if (existing.salaryMax == null && p.salaryMax != null) existing.salaryMax = p.salaryMax;
       } else {
         const newApp = {
           id: uid(),
           company: p.company || '(unknown)',
           role: p.role || '',
-          salaryMin: null, salaryMax: null,
+          salaryMin: p.salaryMin != null ? p.salaryMin : null,
+          salaryMax: p.salaryMax != null ? p.salaryMax : null,
           date: p.date || new Date().toISOString().slice(0, 10),
           status: p.status,
           source: p.source || '',
@@ -2090,6 +2206,11 @@
       id: t.messageId,
       snippet: t.snippet || '',
       internalDate: String(t.internalDate || 0),
+      // Apps Script (current version) optionally returns this — a longer
+      // body excerpt searched specifically for salary patterns. Older
+      // deployments without this field still work; the classifier just
+      // falls back to subject + snippet.
+      salaryRaw: t.salaryRaw || '',
       payload: {
         headers: [
           { name: 'From',    value: t.from || '' },
@@ -2228,6 +2349,98 @@
     if (!gmailSelected || !gmailSelected.size) return null;
     return applySelectedGmailItems({ silent: true });
   }
+
+  // Re-classify already-imported applications using the latest classifier.
+  // Fetches threads via the same source the user has configured (Apps
+  // Script preferred for salaryRaw; falls back to gapi).
+  async function reclassifyImports() {
+    const linked = Object.keys(state.gmail.threadToAppId || {});
+    if (!linked.length) {
+      setSyncStatus('No imported applications to re-classify yet.', 'error');
+      return;
+    }
+    if (!confirm(
+      'Re-classify ' + linked.length + ' Gmail-imported applications?\n\n' +
+      'This will overwrite company / role / source / salary fields on those rows ' +
+      'with the latest classifier output. Status only upgrades, never downgrades. ' +
+      'Notes, follow-up date, next action, and date are preserved.'
+    )) return;
+
+    setSyncStatus('Re-classifying ' + linked.length + ' imports…', 'busy');
+    try {
+      // Fetch the freshest scan we can get.
+      let threads = null;
+      if (state.gmail.appsScriptUrl && state.gmail.appsScriptSecret) {
+        const url = state.gmail.appsScriptUrl;
+        const r = await fetch(
+          url + (url.indexOf('?') === -1 ? '?' : '&') +
+          'action=results&token=' + encodeURIComponent(state.gmail.appsScriptSecret),
+          { method: 'GET', mode: 'cors', cache: 'no-store' }
+        );
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        if (data.error) throw new Error(data.error);
+        threads = (data.threads || []).map(appsScriptThreadToGapi);
+      } else if (gapi && gapi.client && gapi.client.gmail) {
+        // Fall back to a fresh gapi scan (broader window so we re-cover old imports).
+        const list = await gapi.client.gmail.users.messages.list({
+          userId: 'me', q: GMAIL_QUERY_TERMS + ' newer_than:365d', maxResults: 200
+        });
+        const messages = (list.result && list.result.messages) || [];
+        const fetched = [];
+        for (const msg of messages) {
+          try {
+            const m = await gapi.client.gmail.users.messages.get({
+              userId: 'me', id: msg.id, format: 'metadata',
+              metadataHeaders: ['From', 'Subject', 'Date']
+            });
+            fetched.push(m.result);
+          } catch (e) { /* skip */ }
+        }
+        const byThread = new Map();
+        for (const m of fetched) {
+          const prev = byThread.get(m.threadId);
+          if (!prev || Number(m.internalDate || 0) > Number(prev.internalDate || 0)) {
+            byThread.set(m.threadId, m);
+          }
+        }
+        threads = Array.from(byThread.values());
+      } else {
+        throw new Error('No Gmail source configured. Sign in or set up Background Sync first.');
+      }
+
+      // Walk linked apps; for each, look up its latest message and re-classify.
+      const byThreadId = new Map();
+      for (const m of threads) byThreadId.set(m.threadId, m);
+      let updated = 0, missed = 0;
+      for (const threadId of linked) {
+        const appId = state.gmail.threadToAppId[threadId];
+        const app = state.applications.find(a => a.id === appId);
+        if (!app) continue;
+        const msg = byThreadId.get(threadId);
+        if (!msg) { missed++; continue; }
+        const p = classifyGmailMessage(msg);
+        if (p.company) app.company = p.company;
+        if (p.role) app.role = p.role;
+        if (p.source) app.source = p.source;
+        if (p.salaryMin != null) app.salaryMin = p.salaryMin;
+        if (p.salaryMax != null) app.salaryMax = p.salaryMax;
+        if (shouldUpgradeStatus(app.status, p.status)) app.status = p.status;
+        updated++;
+      }
+      save();
+      renderStats();
+      renderApps();
+      refreshInsightsIfActive();
+      const msg = 'Re-classified ' + updated + ' applications' +
+                  (missed ? ' (' + missed + ' threads not in current scan window — already gone or older than 365 days)' : '') + '.';
+      setSyncStatus(msg, 'ok');
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('Re-classify failed: ' + e.message, 'error');
+    }
+  }
+  document.getElementById('reclassify-btn').addEventListener('click', reclassifyImports);
 
   // Try a silent token request (no popup) and run a scan.
   // Bails out cleanly if Google can't re-issue a token without UI.
