@@ -879,7 +879,6 @@
                 <th style="width: 26px;"></th>
                 <th>Company / Role</th>
                 <th>Source</th>
-                <th>Salary</th>
                 <th>Follow up</th>
                 <th>Status</th>
                 <th></th>
@@ -1456,7 +1455,7 @@
 
     if (!filtered.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="7" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
+      tr.innerHTML = '<td colspan="6" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
       body.appendChild(tr);
       return;
     }
@@ -1480,7 +1479,6 @@
           '</div>' +
         '</td>' +
         '<td>' + sourceTag(a.source) + '</td>' +
-        '<td>' + salaryCell(a) + '</td>' +
         '<td>' + followUpCell(a) + '</td>' +
         '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
         '<td><div class="row-actions">' +
@@ -1499,7 +1497,7 @@
           '<option value="' + s + '"' + (s === a.status ? ' selected' : '') + '>' + statusLabel(s) + '</option>'
         ).join('');
         dr.innerHTML =
-          '<td colspan="7">' +
+          '<td colspan="6">' +
             '<div class="details-grid">' +
               '<label>Status' +
                 '<select data-edit="status" data-id="' + a.id + '">' + statusOptions + '</select>' +
@@ -1515,12 +1513,6 @@
               '</label>' +
               '<label>Location' +
                 '<input type="text" data-edit="location" data-id="' + a.id + '" value="' + escapeHtml(a.location || '') + '" />' +
-              '</label>' +
-              '<label>Salary min ($)' +
-                '<input type="number" min="0" step="1000" data-edit="salaryMin" data-id="' + a.id + '" value="' + (a.salaryMin != null ? a.salaryMin : '') + '" />' +
-              '</label>' +
-              '<label>Salary max ($)' +
-                '<input type="number" min="0" step="1000" data-edit="salaryMax" data-id="' + a.id + '" value="' + (a.salaryMax != null ? a.salaryMax : '') + '" />' +
               '</label>' +
               '<label>Next action' +
                 '<input type="text" data-edit="nextAction" data-id="' + a.id + '" placeholder="e.g. Email recruiter" value="' + escapeHtml(a.nextAction || '') + '" />' +
