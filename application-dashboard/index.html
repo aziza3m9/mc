@@ -904,7 +904,6 @@
                 <th style="width: 26px;"></th>
                 <th>Company / Role</th>
                 <th>Source</th>
-                <th>Follow up</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -1495,7 +1494,7 @@
 
     if (!filtered.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="6" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
+      tr.innerHTML = '<td colspan="5" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
       body.appendChild(tr);
       return;
     }
@@ -1519,7 +1518,6 @@
           '</div>' +
         '</td>' +
         '<td>' + sourceTag(a.source) + '</td>' +
-        '<td>' + followUpCell(a) + '</td>' +
         '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
         '<td><div class="row-actions">' +
           '<button class="icon-btn danger" data-del="' + a.id + '">Delete</button>' +
@@ -1537,7 +1535,7 @@
           '<option value="' + s + '"' + (s === a.status ? ' selected' : '') + '>' + statusLabel(s) + '</option>'
         ).join('');
         dr.innerHTML =
-          '<td colspan="6">' +
+          '<td colspan="5">' +
             '<div class="details-grid">' +
               '<label>Status' +
                 '<select data-edit="status" data-id="' + a.id + '">' + statusOptions + '</select>' +
@@ -1556,9 +1554,6 @@
               '</label>' +
               '<label>Next action' +
                 '<input type="text" data-edit="nextAction" data-id="' + a.id + '" placeholder="e.g. Email recruiter" value="' + escapeHtml(a.nextAction || '') + '" />' +
-              '</label>' +
-              '<label>Follow up by' +
-                '<input type="date" data-edit="followUp" data-id="' + a.id + '" value="' + escapeHtml(a.followUp || '') + '" />' +
               '</label>' +
               '<label class="details-notes">Notes' +
                 '<textarea data-edit="notes" data-id="' + a.id + '" placeholder="Anything worth remembering">' + escapeHtml(a.notes || '') + '</textarea>' +
