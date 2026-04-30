@@ -462,6 +462,21 @@
   .gmail-result .gr-snippet { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.45; max-height: 36px; overflow: hidden; }
   .gmail-result .gr-tags { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
   .gmail-result .dup-tag { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+  .auto-scan-toggle {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text); cursor: pointer;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel-2);
+  }
+  .auto-scan-toggle input { accent-color: var(--accent); transform: scale(1.1); }
+  .auto-scan-hint { color: var(--muted); font-size: 12px; flex-basis: 100%; margin-left: 24px; }
+
+  .nav-badge {
+    margin-left: auto; background: var(--accent); color: #fff;
+    font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+    line-height: 1.5;
+  }
 </style>
 </head>
 <body>
@@ -492,6 +507,7 @@
     <a class="nav-link" data-view="sync" href="#sync">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
       <span>Gmail Sync</span>
+      <span class="nav-badge" id="sync-nav-badge" hidden>0</span>
     </a>
   </nav>
 
@@ -779,6 +795,11 @@
           </div>
         </div>
         <div class="sync-status" id="gmail-status">Not signed in.</div>
+        <label class="auto-scan-toggle" style="margin-top: 12px;">
+          <input type="checkbox" id="gmail-auto-scan" />
+          <span>Auto-scan when I open the dashboard</span>
+          <span class="auto-scan-hint">Silently re-uses your existing Google session — no popup unless your sign-in expires.</span>
+        </label>
       </section>
 
       <section class="panel" id="gmail-scan-panel" hidden>
@@ -871,14 +892,15 @@
             clientId: typeof g.clientId === 'string' ? g.clientId : '',
             importedThreadIds: Array.isArray(g.importedThreadIds) ? g.importedThreadIds : [],
             threadToAppId: g.threadToAppId && typeof g.threadToAppId === 'object' ? g.threadToAppId : {},
-            lastScanAt: g.lastScanAt || null
+            lastScanAt: g.lastScanAt || null,
+            autoScan: g.autoScan === true
           }
         };
       }
     } catch (e) { /* fall through */ }
     return {
       applications: [], sessions: [], activeSession: null, goalSalary: null,
-      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null }
+      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false }
     };
   }
 
@@ -1692,14 +1714,16 @@
     setSyncStatus('Signed out.');
   });
 
-  document.getElementById('gmail-scan-btn').addEventListener('click', async function () {
+  // Run a Gmail scan. `opts.silent=true` is used by auto-scan-on-load and
+  // suppresses some UI noise (no "Scanning…" busy message, no failure toast).
+  async function runGmailScan(opts) {
+    opts = opts || {};
     if (gmailScanning) return;
     gmailScanning = true;
-    setSyncStatus('Scanning inbox…', 'busy');
+    if (!opts.silent) setSyncStatus('Scanning inbox…', 'busy');
     try {
       const window_ = document.getElementById('gmail-window').value || '90d';
       const q = GMAIL_QUERY_TERMS + ' newer_than:' + window_;
-      // 1. List up to 200 messages matching the query.
       const list = await gapi.client.gmail.users.messages.list({
         userId: 'me', q, maxResults: 200
       });
@@ -1707,12 +1731,11 @@
       if (!messages.length) {
         gmailLastResults = [];
         renderGmailResults();
-        setSyncStatus('No matching emails found in that window.', 'ok');
-        gmailScanning = false;
+        renderSyncBadge();
+        if (!opts.silent) setSyncStatus('No matching emails found in that window.', 'ok');
         return;
       }
-      setSyncStatus('Fetching ' + messages.length + ' messages…', 'busy');
-      // 2. Fetch each message's headers + snippet in batches.
+      if (!opts.silent) setSyncStatus('Fetching ' + messages.length + ' messages…', 'busy');
       const fetched = [];
       for (let i = 0; i < messages.length; i++) {
         try {
@@ -1721,14 +1744,11 @@
             metadataHeaders: ['From', 'Subject', 'Date']
           });
           fetched.push(r.result);
-        } catch (e) {
-          // Ignore individual failures and keep going.
-        }
-        if (i % 25 === 24) {
+        } catch (e) { /* per-message failures don't abort the run */ }
+        if (!opts.silent && i % 25 === 24) {
           setSyncStatus('Fetched ' + (i + 1) + ' / ' + messages.length + '…', 'busy');
         }
       }
-      // 3. Group by threadId; keep the newest message per thread.
       const byThread = new Map();
       for (const m of fetched) {
         const t = m.threadId;
@@ -1737,7 +1757,6 @@
           byThread.set(t, m);
         }
       }
-      // 4. Classify and detect duplicates.
       gmailLastResults = [];
       for (const m of byThread.values()) {
         const parsed = classifyGmailMessage(m);
@@ -1749,7 +1768,6 @@
         });
       }
       gmailLastResults.sort((a, b) => b.internalDate - a.internalDate);
-      // Default selection: only items that are NEW or look like a status upgrade.
       gmailSelected = new Set();
       for (const r of gmailLastResults) {
         if (!r.isDup) gmailSelected.add(r.threadId);
@@ -1763,15 +1781,24 @@
       state.gmail.lastScanAt = new Date().toISOString();
       save();
       renderGmailResults();
-      setSyncStatus('Found ' + gmailLastResults.length + ' threads. Review and apply below.', 'ok');
+      renderSyncBadge();
+      if (!opts.silent) {
+        setSyncStatus('Found ' + gmailLastResults.length + ' threads. Review and apply below.', 'ok');
+      } else if (gmailSelected.size) {
+        setSyncStatus('Auto-scan: ' + gmailSelected.size + ' new item(s) waiting for review.', 'ok');
+      }
     } catch (e) {
       console.error(e);
-      setSyncStatus('Scan failed: ' + (e.result && e.result.error && e.result.error.message ? e.result.error.message : e.message || 'unknown error'), 'error');
+      if (!opts.silent) {
+        setSyncStatus('Scan failed: ' + (e.result && e.result.error && e.result.error.message ? e.result.error.message : e.message || 'unknown error'), 'error');
+      }
     } finally {
       gmailScanning = false;
       renderSyncStatus();
     }
-  });
+  }
+
+  document.getElementById('gmail-scan-btn').addEventListener('click', () => runGmailScan({ silent: false }));
 
   // Status priority used to decide if an incoming email "upgrades" an existing app.
   // Rejected wins over everything; offer beats interview/assessment/applied; etc.
@@ -1983,7 +2010,78 @@
     }
     gmailSelected = new Set();
     renderGmailResults();
+    renderSyncBadge();
   });
+
+  // ---- Auto-scan plumbing ----
+
+  // Show a count of unreviewed pre-selected items on the Gmail Sync nav link.
+  function renderSyncBadge() {
+    const badge = document.getElementById('sync-nav-badge');
+    if (!badge) return;
+    const n = gmailSelected ? gmailSelected.size : 0;
+    if (n > 0) {
+      badge.textContent = String(n);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  // Hydrate the auto-scan checkbox + persist on toggle.
+  const autoScanCb = document.getElementById('gmail-auto-scan');
+  autoScanCb.checked = !!state.gmail.autoScan;
+  autoScanCb.addEventListener('change', () => {
+    state.gmail.autoScan = autoScanCb.checked;
+    save();
+  });
+
+  // Try a silent token request (no popup) and run a scan.
+  // Bails out cleanly if Google can't re-issue a token without UI.
+  async function tryAutoScan() {
+    if (!state.gmail.autoScan) return;
+    if (!state.gmail.clientId) return;
+    if (gmailScanning) return;
+    // Cooldown: don't auto-scan more than once every 5 minutes per page-load
+    // run, in case the user navigates around.
+    if (state.gmail.lastScanAt) {
+      const ageMs = Date.now() - new Date(state.gmail.lastScanAt).getTime();
+      if (ageMs < 5 * 60 * 1000) return;
+    }
+    try {
+      await ensureGapiLoaded();
+    } catch (e) { return; }
+    if (!gmailTokenClient) initGmailTokenClient();
+    if (!gmailTokenClient) return;
+
+    // Wrap the token-client callback in a Promise so we can await silent auth.
+    const tokenResp = await new Promise((resolve) => {
+      const origCb = gmailTokenClient.callback;
+      let settled = false;
+      gmailTokenClient.callback = (resp) => {
+        gmailTokenClient.callback = origCb;
+        if (!settled) { settled = true; resolve(resp); }
+      };
+      try {
+        // prompt: '' = silent; will fail with error 'interaction_required'
+        // or similar if Google needs the user to consent again.
+        gmailTokenClient.requestAccessToken({ prompt: '' });
+      } catch (e) {
+        if (!settled) { settled = true; resolve({ error: e.message }); }
+      }
+      // Hard timeout in case GIS never fires the callback at all.
+      setTimeout(() => {
+        if (!settled) { settled = true; resolve({ error: 'timeout' }); }
+      }, 8000);
+    });
+
+    if (!tokenResp || tokenResp.error || !tokenResp.access_token) return;
+    gapi.client.setToken({ access_token: tokenResp.access_token });
+    document.getElementById('gmail-signin-btn').hidden = true;
+    document.getElementById('gmail-signout-btn').hidden = false;
+    document.getElementById('gmail-scan-panel').hidden = false;
+    await runGmailScan({ silent: true });
+  }
 
   // Initial render
   updateClockUI();
@@ -1993,8 +2091,10 @@
   tickClock();
   setInterval(tickClock, 1000);
   renderSyncStatus();
+  renderSyncBadge();
 
-  // Periodically check whether GIS has loaded so we can enable the Sign-in button.
+  // Periodically check whether GIS has loaded so we can enable the Sign-in
+  // button (and kick off an auto-scan if the user opted in).
   let gisReadyChecks = 0;
   const gisReadyInterval = setInterval(() => {
     gisReadyChecks++;
@@ -2002,6 +2102,7 @@
       initGmailTokenClient();
       renderSyncStatus();
       clearInterval(gisReadyInterval);
+      tryAutoScan();
     } else if (gisReadyChecks > 40) { // ~20s
       clearInterval(gisReadyInterval);
     }

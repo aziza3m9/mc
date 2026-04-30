@@ -88,6 +88,21 @@ linked to one application via its thread ID. If a later email upgrades
 the status (e.g., Applied → Interview → Offer), the existing
 application is updated in place.
 
+### Auto-scan on dashboard open
+
+Once you've signed in once, you can tick **"Auto-scan when I open the
+dashboard"** in the Setup panel. From then on, every time you load the
+dashboard the app will silently re-issue a token (no popup, as long as
+you're still signed into Google in that browser) and scan in the
+background. Findings appear with a count badge on the **Gmail Sync**
+nav link, ready for you to review. The auto-scan has a 5-minute
+cooldown so navigating around won't spam Gmail.
+
+This is **page-load** sync, not background sync — your laptop has to
+be on and the dashboard tab has to load. For true background sync
+(runs while you're not using the computer), you'd need a server-side
+component, e.g. Google Apps Script on a time trigger.
+
 ## Privacy
 
 - Your access token is held in JS memory only. It's never written to
