@@ -542,76 +542,6 @@
         <div class="stat rejected"><div class="label">Rejections</div><div class="value" id="stat-rejected">0</div></div>
       </section>
 
-      <section class="panel">
-        <h2>Add Application</h2>
-        <form id="add-form" class="form-grid">
-          <div class="field span-2">
-            <label for="f-company">Company</label>
-            <input type="text" id="f-company" placeholder="e.g. Acme Inc." required />
-          </div>
-          <div class="field span-2">
-            <label for="f-role">Role / Title</label>
-            <input type="text" id="f-role" placeholder="e.g. Senior Engineer" required />
-          </div>
-          <div class="field span-2">
-            <label for="f-location">Location</label>
-            <input type="text" id="f-location" placeholder="Remote, NYC, Berlin…" />
-          </div>
-
-          <div class="field span-2">
-            <label>Salary range (USD/yr)</label>
-            <div class="salary-range">
-              <input type="number" id="f-salary-min" placeholder="Min" min="0" step="1000" />
-              <span class="dash">–</span>
-              <input type="number" id="f-salary-max" placeholder="Max" min="0" step="1000" />
-            </div>
-          </div>
-          <div class="field span-2">
-            <label for="f-source">Source</label>
-            <select id="f-source">
-              <option value="">— Pick a channel —</option>
-              <option value="linkedin">LinkedIn</option>
-              <option value="indeed">Indeed</option>
-              <option value="ziprecruiter">ZipRecruiter</option>
-              <option value="referral">Referral</option>
-              <option value="company">Company site</option>
-              <option value="recruiter">Recruiter</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="f-date">Applied</label>
-            <input type="date" id="f-date" />
-          </div>
-          <div class="field">
-            <label for="f-status">Status</label>
-            <select id="f-status">
-              <option value="applied">Applied</option>
-              <option value="interview">Interview Request</option>
-              <option value="assessment">Assessment</option>
-              <option value="offer">Offer</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          </div>
-
-          <div class="field span-3">
-            <label for="f-next-action">Next action</label>
-            <input type="text" id="f-next-action" placeholder="e.g. Send thank-you email, prep system-design round" />
-          </div>
-          <div class="field span-3">
-            <label for="f-follow-up">Follow up by</label>
-            <input type="date" id="f-follow-up" />
-          </div>
-          <div class="field span-6">
-            <label for="f-notes">Notes</label>
-            <textarea id="f-notes" rows="2" placeholder="Anything worth remembering — recruiter name, JD link, prep gaps…"></textarea>
-          </div>
-
-          <div class="submit-row">
-            <button type="submit" class="btn-primary">Add Application</button>
-          </div>
-        </form>
-      </section>
 
       <section class="panel">
         <h2>Applications <span class="count" id="apps-count">0 total</span></h2>
@@ -1509,36 +1439,6 @@
   window.addEventListener('hashchange', () => setView((location.hash || '#applications').slice(1)));
   setView((location.hash || '#applications').slice(1));
 
-  document.getElementById('add-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    const company = document.getElementById('f-company').value.trim();
-    const role = document.getElementById('f-role').value.trim();
-    if (!company || !role) return;
-    const salaryMinRaw = document.getElementById('f-salary-min').value;
-    const salaryMaxRaw = document.getElementById('f-salary-max').value;
-    const salaryMin = salaryMinRaw === '' ? null : Number(salaryMinRaw);
-    const salaryMax = salaryMaxRaw === '' ? null : Number(salaryMaxRaw);
-    const date = document.getElementById('f-date').value || new Date().toISOString().slice(0, 10);
-    const status = document.getElementById('f-status').value;
-    const source = document.getElementById('f-source').value;
-    const location = document.getElementById('f-location').value.trim();
-    const followUp = document.getElementById('f-follow-up').value;
-    const nextAction = document.getElementById('f-next-action').value.trim();
-    const notes = document.getElementById('f-notes').value.trim();
-    state.applications.unshift({
-      id: uid(), company, role, salaryMin, salaryMax, date, status,
-      source, location, followUp, nextAction, notes
-    });
-    save();
-    e.target.reset();
-    document.getElementById('f-status').value = 'applied';
-    document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
-    document.getElementById('f-source').value = '';
-    renderStats();
-    renderApps();
-    refreshInsightsIfActive();
-  });
-
   document.getElementById('apps-body').addEventListener('change', function (e) {
     const sel = e.target.closest('.status-select');
     if (!sel) return;
@@ -1686,9 +1586,6 @@
     reader.readAsText(file);
     e.target.value = '';
   });
-
-  // Default date in form to today
-  document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
 
   /* =================================================================
      GMAIL SYNC
