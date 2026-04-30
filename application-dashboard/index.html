@@ -1896,9 +1896,19 @@
     const counts = { applied: 0, interview: 0, assessment: 0, offer: 0, rejected: 0 };
     for (const a of apps) if (counts[a.status] !== undefined) counts[a.status]++;
 
-    // Conversion funnel: cumulative count at each stage (assumes apps progress
-    // forward, so an app at "offer" implicitly passed earlier stages)
+    // Conversion funnel: cumulative count at each stage (assumes apps
+    // progress forward, so an app at "offer" implicitly passed earlier
+    // stages). Stage labels are renamed from the raw statuses to make
+    // it clear they represent "reached this stage" rather than
+    // "currently at this stage" — matches what the Applications view
+    // top-stat panel shows.
     const funnelStages = ['applied','interview','assessment','offer'];
+    const funnelLabel = {
+      applied:    'Submitted',
+      interview:  'Reached Interview',
+      assessment: 'Reached Assessment',
+      offer:      'Got Offer'
+    };
     const cumulative = {
       applied:    counts.applied + counts.interview + counts.assessment + counts.offer,
       interview:  counts.interview + counts.assessment + counts.offer,
@@ -1914,12 +1924,12 @@
         convHtml = '<div class="stage-conv">excludes ' + counts.rejected + ' rejected</div>';
       } else if (prev > 0) {
         const pct = Math.round((n / prev) * 100);
-        convHtml = '<div class="stage-conv">→ <b>' + pct + '%</b> from ' + statusLabel(funnelStages[i - 1]) + '</div>';
+        convHtml = '<div class="stage-conv">→ <b>' + pct + '%</b> from ' + funnelLabel[funnelStages[i - 1]] + '</div>';
       } else {
         convHtml = '<div class="stage-conv">—</div>';
       }
       return '<div class="funnel-stage ' + s + '">' +
-        '<div class="stage-name">' + statusLabel(s) + '</div>' +
+        '<div class="stage-name">' + funnelLabel[s] + '</div>' +
         '<div class="stage-count">' + n + '</div>' +
         convHtml +
       '</div>';
