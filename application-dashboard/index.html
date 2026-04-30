@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -421,6 +423,60 @@
 
   /* Compact secondary cell */
   .cell-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+  /* Gmail Sync */
+  .setup-note {
+    color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 14px;
+  }
+  .setup-note code {
+    background: var(--panel-2); padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--border); font-size: 12px;
+  }
+  .sync-grid {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end;
+  }
+  @media (max-width: 700px) {
+    .sync-grid { grid-template-columns: 1fr; }
+  }
+  .sync-actions { display: flex; gap: 8px; align-items: center; }
+  .sync-status {
+    margin-top: 12px; font-size: 13px; color: var(--muted);
+    padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .sync-status.error { color: var(--red); border-color: rgba(239,90,111,.4); background: rgba(239,90,111,.06); }
+  .sync-status.ok    { color: var(--green); border-color: rgba(63,207,142,.4); background: rgba(63,207,142,.06); }
+  .sync-status.busy  { color: var(--accent); border-color: rgba(108,140,255,.4); }
+
+  .sync-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .gmail-results { display: flex; flex-direction: column; gap: 8px; max-height: 600px; overflow-y: auto; }
+  .gmail-result {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 12px;
+    padding: 12px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel-2); align-items: start;
+  }
+  .gmail-result.dup    { opacity: 0.55; }
+  .gmail-result input[type=checkbox] { margin-top: 4px; transform: scale(1.2); accent-color: var(--accent); }
+  .gmail-result .gr-title { font-weight: 600; font-size: 14px; }
+  .gmail-result .gr-meta  { color: var(--muted); font-size: 11px; margin-top: 4px; line-height: 1.5; }
+  .gmail-result .gr-snippet { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.45; max-height: 36px; overflow: hidden; }
+  .gmail-result .gr-tags { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .gmail-result .dup-tag { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+  .auto-scan-toggle {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text); cursor: pointer;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel-2);
+  }
+  .auto-scan-toggle input { accent-color: var(--accent); transform: scale(1.1); }
+  .auto-scan-hint { color: var(--muted); font-size: 12px; flex-basis: 100%; margin-left: 24px; }
+
+  .nav-badge {
+    margin-left: auto; background: var(--accent); color: #fff;
+    font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+    line-height: 1.5;
+  }
 </style>
 </head>
 <body>
@@ -447,6 +503,11 @@
     <a class="nav-link" data-view="insights" href="#insights">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
       <span>Insights</span>
+    </a>
+    <a class="nav-link" data-view="sync" href="#sync">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      <span>Gmail Sync</span>
+      <span class="nav-badge" id="sync-nav-badge" hidden>0</span>
     </a>
   </nav>
 
@@ -707,6 +768,99 @@
       </div>
     </section>
 
+    <!-- VIEW: GMAIL SYNC -->
+    <section class="view" id="view-sync">
+      <header class="app-head">
+        <div>
+          <h1>Gmail Sync</h1>
+          <div class="subtitle">Scan your inbox for application / interview / rejection emails and import them automatically</div>
+        </div>
+      </header>
+
+      <section class="panel">
+        <h2>Setup</h2>
+        <p class="setup-note">
+          Gmail read-access requires a one-time Google Cloud OAuth client ID.
+          See <code>SETUP.md</code> in this folder for the 5-minute walkthrough,
+          then paste your Client ID below. Your token never leaves the browser.
+        </p>
+        <div class="sync-grid">
+          <div class="field">
+            <label for="gmail-client-id">OAuth Client ID</label>
+            <input type="text" id="gmail-client-id" placeholder="e.g. 123456-abc.apps.googleusercontent.com" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="sync-actions">
+            <button class="btn-primary" id="gmail-signin-btn" disabled>Sign in with Google</button>
+            <button class="btn-ghost" id="gmail-signout-btn" hidden>Sign out</button>
+          </div>
+        </div>
+        <div class="sync-status" id="gmail-status">Not signed in.</div>
+        <label class="auto-scan-toggle" style="margin-top: 12px;">
+          <input type="checkbox" id="gmail-auto-scan" />
+          <span>Auto-scan when I open the dashboard</span>
+          <span class="auto-scan-hint">Silently re-uses your existing Google session — no popup unless your sign-in expires.</span>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Background Sync (optional)</h2>
+        <p class="setup-note">
+          Runs in Google's cloud on a 15-min timer — works even when your
+          laptop is closed. One-time Apps Script setup (~5 min) — see
+          <code>apps-script/Code.gs</code> &amp; <code>SETUP.md</code> §
+          "Background Sync". When configured, this takes over from the
+          in-browser scan: open the dashboard and findings are already
+          there.
+        </p>
+        <div class="field">
+          <label for="bg-url">Apps Script Web App URL</label>
+          <input type="text" id="bg-url" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="bg-secret">Shared Secret</label>
+          <input type="text" id="bg-secret" placeholder="from setup() logs" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="sync-actions" style="margin-top: 8px;">
+          <button class="btn-ghost" id="bg-test-btn">Test connection</button>
+          <button class="btn-primary" id="bg-fetch-btn">Fetch latest now</button>
+        </div>
+        <div class="sync-status" id="bg-status">Not configured.</div>
+      </section>
+
+      <section class="panel" id="gmail-scan-panel" hidden>
+        <h2>Scan Inbox <span class="count" id="gmail-last-scan">never scanned</span></h2>
+        <div class="sync-grid">
+          <div class="field">
+            <label for="gmail-window">Look back</label>
+            <select id="gmail-window">
+              <option value="30d">Last 30 days</option>
+              <option value="60d">Last 60 days</option>
+              <option value="90d" selected>Last 90 days</option>
+              <option value="180d">Last 6 months</option>
+              <option value="365d">Last 1 year</option>
+            </select>
+          </div>
+          <div class="sync-actions">
+            <button class="btn-primary" id="gmail-scan-btn">Scan Inbox</button>
+          </div>
+        </div>
+        <div class="setup-note" style="margin-top: 8px;">
+          We'll search for keywords like "thank you for applying", "interview", "unfortunately", "offer", etc. — up to 100 most recent matching threads.
+        </div>
+      </section>
+
+      <section class="panel" id="gmail-results-panel" hidden>
+        <h2>Review &amp; Import <span class="count" id="gmail-results-count">0 matches</span></h2>
+        <div class="sync-toolbar">
+          <button class="btn-ghost btn-sm" id="gmail-select-all">Select all</button>
+          <button class="btn-ghost btn-sm" id="gmail-select-none">Clear</button>
+          <button class="btn-ghost btn-sm" id="gmail-select-new">Only new</button>
+          <button class="btn-primary btn-sm" id="gmail-apply-btn" style="margin-left: auto;">Apply 0 selected</button>
+        </div>
+        <div id="gmail-results" class="gmail-results"></div>
+      </section>
+    </section>
+
   </main>
 </div>
 
@@ -753,15 +907,28 @@
       if (raw) {
         const parsed = JSON.parse(raw);
         const apps = (parsed.applications || []).map(migrateApp);
+        const g = parsed.gmail || {};
         return {
           applications: apps,
           sessions: parsed.sessions || [],
           activeSession: parsed.activeSession || null,
-          goalSalary: Number(parsed.goalSalary) > 0 ? Number(parsed.goalSalary) : null
+          goalSalary: Number(parsed.goalSalary) > 0 ? Number(parsed.goalSalary) : null,
+          gmail: {
+            clientId: typeof g.clientId === 'string' ? g.clientId : '',
+            importedThreadIds: Array.isArray(g.importedThreadIds) ? g.importedThreadIds : [],
+            threadToAppId: g.threadToAppId && typeof g.threadToAppId === 'object' ? g.threadToAppId : {},
+            lastScanAt: g.lastScanAt || null,
+            autoScan: g.autoScan === true,
+            appsScriptUrl: typeof g.appsScriptUrl === 'string' ? g.appsScriptUrl : '',
+            appsScriptSecret: typeof g.appsScriptSecret === 'string' ? g.appsScriptSecret : ''
+          }
         };
       }
     } catch (e) { /* fall through */ }
-    return { applications: [], sessions: [], activeSession: null, goalSalary: null };
+    return {
+      applications: [], sessions: [], activeSession: null, goalSalary: null,
+      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, appsScriptUrl: '', appsScriptSecret: '' }
+    };
   }
 
   function save() {
@@ -1276,13 +1443,14 @@
   document.getElementById('clock-out-btn').addEventListener('click', clockOut);
 
   // View routing
-  const validViews = ['applications', 'timesheet', 'insights'];
+  const validViews = ['applications', 'timesheet', 'insights', 'sync'];
   function setView(name) {
     if (!validViews.includes(name)) name = 'applications';
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
     document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.view === name));
     if (history.replaceState) history.replaceState(null, '', '#' + name);
     if (name === 'insights') renderInsights();
+    if (name === 'sync') renderSyncStatus();
   }
   document.querySelectorAll('.nav-link').forEach(l => {
     l.addEventListener('click', function (e) {
@@ -1452,6 +1620,622 @@
   // Default date in form to today
   document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
 
+  /* =================================================================
+     GMAIL SYNC
+     - Auth via Google Identity Services (GIS) implicit token client
+     - Gmail API via gapi.client.gmail
+     - All client-side; access token lives only in memory (not persisted)
+     - User's Client ID is saved in localStorage so they don't re-paste
+  ================================================================= */
+  const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+  const GMAIL_DISCOVERY = 'https://gmail.googleapis.com/$discovery/rest?version=v1';
+  // One Gmail search that catches the common application-lifecycle keywords.
+  // Limited to 200 most recent matches; user picks the time window.
+  const GMAIL_QUERY_TERMS =
+    '"thank you for applying" OR "application received" OR "we received your application" ' +
+    'OR "thank you for your interest" OR "your application" ' +
+    'OR "interview" OR "phone screen" OR "online assessment" OR "coding challenge" OR "take-home" OR "take home" ' +
+    'OR "unfortunately" OR "not selected" OR "move forward with other" OR "decided not to" ' +
+    'OR "not moving forward" OR "no longer considering" ' +
+    'OR "extend an offer" OR "pleased to extend" OR "offer of employment"';
+
+  let gmailTokenClient = null;
+  let gmailGapiReady = false;
+  let gmailScanning = false;
+  let gmailLastResults = [];   // [{ threadId, messageId, parsed: {...}, isDup, existingAppId }]
+  let gmailSelected = new Set();
+
+  function setSyncStatus(text, kind) {
+    const el = document.getElementById('gmail-status');
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+
+  function renderSyncStatus() {
+    const idInput = document.getElementById('gmail-client-id');
+    if (state.gmail.clientId && document.activeElement !== idInput) {
+      idInput.value = state.gmail.clientId;
+    }
+    const signinBtn = document.getElementById('gmail-signin-btn');
+    signinBtn.disabled = !state.gmail.clientId || !window.google || !window.google.accounts || !window.google.accounts.oauth2;
+    if (state.gmail.lastScanAt) {
+      const d = new Date(state.gmail.lastScanAt);
+      document.getElementById('gmail-last-scan').textContent = 'last scanned ' + d.toLocaleString();
+    }
+  }
+
+  // Persist the client ID, debounced.
+  let clientIdSaveTimer = null;
+  document.getElementById('gmail-client-id').addEventListener('input', function (e) {
+    state.gmail.clientId = e.target.value.trim();
+    clearTimeout(clientIdSaveTimer);
+    clientIdSaveTimer = setTimeout(save, 250);
+    initGmailTokenClient();
+    renderSyncStatus();
+  });
+
+  function ensureGapiLoaded() {
+    return new Promise((resolve, reject) => {
+      if (gmailGapiReady) return resolve();
+      if (typeof gapi === 'undefined') {
+        return reject(new Error('Google API script not loaded yet — refresh the page.'));
+      }
+      gapi.load('client', () => {
+        gapi.client.init({ discoveryDocs: [GMAIL_DISCOVERY] })
+          .then(() => { gmailGapiReady = true; resolve(); })
+          .catch(reject);
+      });
+    });
+  }
+
+  function initGmailTokenClient() {
+    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) return;
+    if (!state.gmail.clientId) { gmailTokenClient = null; return; }
+    try {
+      gmailTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: state.gmail.clientId,
+        scope: GMAIL_SCOPE,
+        callback: (resp) => {
+          if (resp.error) {
+            setSyncStatus('Sign-in failed: ' + (resp.error_description || resp.error), 'error');
+            return;
+          }
+          gapi.client.setToken({ access_token: resp.access_token });
+          document.getElementById('gmail-signin-btn').hidden = true;
+          document.getElementById('gmail-signout-btn').hidden = false;
+          document.getElementById('gmail-scan-panel').hidden = false;
+          setSyncStatus('Signed in. Ready to scan.', 'ok');
+        }
+      });
+    } catch (e) {
+      setSyncStatus('Failed to initialize OAuth: ' + e.message, 'error');
+    }
+  }
+
+  document.getElementById('gmail-signin-btn').addEventListener('click', async function () {
+    if (!state.gmail.clientId) { setSyncStatus('Paste a Client ID first.', 'error'); return; }
+    setSyncStatus('Loading Google APIs…', 'busy');
+    try {
+      await ensureGapiLoaded();
+    } catch (e) {
+      setSyncStatus('Could not load Google API: ' + e.message, 'error');
+      return;
+    }
+    if (!gmailTokenClient) initGmailTokenClient();
+    if (!gmailTokenClient) { setSyncStatus('OAuth client not ready.', 'error'); return; }
+    setSyncStatus('Opening Google sign-in…', 'busy');
+    gmailTokenClient.requestAccessToken({ prompt: 'consent' });
+  });
+
+  document.getElementById('gmail-signout-btn').addEventListener('click', function () {
+    const tok = gapi && gapi.client && gapi.client.getToken && gapi.client.getToken();
+    if (tok && tok.access_token && google.accounts.oauth2.revoke) {
+      google.accounts.oauth2.revoke(tok.access_token, () => {});
+    }
+    if (gapi && gapi.client && gapi.client.setToken) gapi.client.setToken(null);
+    document.getElementById('gmail-signin-btn').hidden = false;
+    document.getElementById('gmail-signout-btn').hidden = true;
+    document.getElementById('gmail-scan-panel').hidden = true;
+    document.getElementById('gmail-results-panel').hidden = true;
+    setSyncStatus('Signed out.');
+  });
+
+  // Run a Gmail scan. `opts.silent=true` is used by auto-scan-on-load and
+  // suppresses some UI noise (no "Scanning…" busy message, no failure toast).
+  async function runGmailScan(opts) {
+    opts = opts || {};
+    if (gmailScanning) return;
+    gmailScanning = true;
+    if (!opts.silent) setSyncStatus('Scanning inbox…', 'busy');
+    try {
+      const window_ = document.getElementById('gmail-window').value || '90d';
+      const q = GMAIL_QUERY_TERMS + ' newer_than:' + window_;
+      const list = await gapi.client.gmail.users.messages.list({
+        userId: 'me', q, maxResults: 200
+      });
+      const messages = (list.result && list.result.messages) || [];
+      if (!messages.length) {
+        gmailLastResults = [];
+        renderGmailResults();
+        renderSyncBadge();
+        if (!opts.silent) setSyncStatus('No matching emails found in that window.', 'ok');
+        return;
+      }
+      if (!opts.silent) setSyncStatus('Fetching ' + messages.length + ' messages…', 'busy');
+      const fetched = [];
+      for (let i = 0; i < messages.length; i++) {
+        try {
+          const r = await gapi.client.gmail.users.messages.get({
+            userId: 'me', id: messages[i].id, format: 'metadata',
+            metadataHeaders: ['From', 'Subject', 'Date']
+          });
+          fetched.push(r.result);
+        } catch (e) { /* per-message failures don't abort the run */ }
+        if (!opts.silent && i % 25 === 24) {
+          setSyncStatus('Fetched ' + (i + 1) + ' / ' + messages.length + '…', 'busy');
+        }
+      }
+      const byThread = new Map();
+      for (const m of fetched) {
+        const t = m.threadId;
+        const prev = byThread.get(t);
+        if (!prev || Number(m.internalDate || 0) > Number(prev.internalDate || 0)) {
+          byThread.set(t, m);
+        }
+      }
+      gmailLastResults = [];
+      for (const m of byThread.values()) {
+        const parsed = classifyGmailMessage(m);
+        const existingAppId = state.gmail.threadToAppId[m.threadId] || null;
+        const isDup = state.gmail.importedThreadIds.indexOf(m.threadId) !== -1 || !!existingAppId;
+        gmailLastResults.push({
+          threadId: m.threadId, messageId: m.id, internalDate: Number(m.internalDate || 0),
+          parsed, isDup, existingAppId
+        });
+      }
+      gmailLastResults.sort((a, b) => b.internalDate - a.internalDate);
+      gmailSelected = new Set();
+      for (const r of gmailLastResults) {
+        if (!r.isDup) gmailSelected.add(r.threadId);
+        else if (r.existingAppId) {
+          const app = state.applications.find(a => a.id === r.existingAppId);
+          if (app && shouldUpgradeStatus(app.status, r.parsed.status)) {
+            gmailSelected.add(r.threadId);
+          }
+        }
+      }
+      state.gmail.lastScanAt = new Date().toISOString();
+      save();
+      renderGmailResults();
+      renderSyncBadge();
+      if (!opts.silent) {
+        setSyncStatus('Found ' + gmailLastResults.length + ' threads. Review and apply below.', 'ok');
+      } else if (gmailSelected.size) {
+        setSyncStatus('Auto-scan: ' + gmailSelected.size + ' new item(s) waiting for review.', 'ok');
+      }
+    } catch (e) {
+      console.error(e);
+      if (!opts.silent) {
+        setSyncStatus('Scan failed: ' + (e.result && e.result.error && e.result.error.message ? e.result.error.message : e.message || 'unknown error'), 'error');
+      }
+    } finally {
+      gmailScanning = false;
+      renderSyncStatus();
+    }
+  }
+
+  document.getElementById('gmail-scan-btn').addEventListener('click', () => runGmailScan({ silent: false }));
+
+  // Status priority used to decide if an incoming email "upgrades" an existing app.
+  // Rejected wins over everything; offer beats interview/assessment/applied; etc.
+  const STATUS_RANK = { applied: 1, interview: 2, assessment: 3, offer: 4, rejected: 5 };
+  function shouldUpgradeStatus(current, incoming) {
+    if (!incoming || incoming === current) return false;
+    if (incoming === 'rejected') return true;          // rejection always wins
+    return (STATUS_RANK[incoming] || 0) > (STATUS_RANK[current] || 0);
+  }
+
+  // Heuristic classifier — returns { status, source, company, role, date }
+  function classifyGmailMessage(msg) {
+    const headers = {};
+    for (const h of (msg.payload && msg.payload.headers) || []) {
+      headers[h.name.toLowerCase()] = h.value || '';
+    }
+    const subject = headers.subject || '';
+    const from = headers.from || '';
+    const dateHeader = headers.date || '';
+    const snippet = (msg.snippet || '').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    const haystack = (subject + ' ' + snippet).toLowerCase();
+
+    // Status detection — order matters (rejected first because "unfortunately ... interview"
+    // patterns are dominated by the rejection signal).
+    let status = 'applied';
+    if (/(unfortunately|not selected|move forward with other|decided not to|not moving forward|no longer considering|after careful consideration|other candidates whose|regret to inform)/.test(haystack)) {
+      status = 'rejected';
+    } else if (/(extend (an )?offer|pleased to extend|offer of employment|congratulations.*offer|formal offer)/.test(haystack)) {
+      status = 'offer';
+    } else if (/(online assessment|coding (challenge|assessment)|take.?home|hackerrank|codility|codesignal|skills assessment)/.test(haystack)) {
+      status = 'assessment';
+    } else if (/(interview|phone screen|chat with|schedule (a )?call|meet with|hiring manager|technical screen|loop interview|onsite|on-site)/.test(haystack)) {
+      status = 'interview';
+    } else if (/(thank you for (applying|your interest)|application received|we received your application|received your application|applied to|your application)/.test(haystack)) {
+      status = 'applied';
+    }
+
+    // Domain → source / company
+    const fromMatch = from.match(/<?([^<\s>]+@[^<\s>]+)>?/);
+    const email = fromMatch ? fromMatch[1].toLowerCase() : '';
+    const domain = email.includes('@') ? email.split('@')[1] : '';
+    const baseDomain = domain.replace(/^.*?([^.]+\.[a-z]+)$/, '$1');
+
+    let source = 'other';
+    if (/(^|\.)linkedin\.com$/.test(domain)) source = 'linkedin';
+    else if (/(^|\.)(greenhouse\.io|lever\.co|workable\.com|ashbyhq\.com|breezy\.hr|smartrecruiters\.com|icims\.com|myworkday(jobs)?\.com|jobvite\.com|bamboohr\.com|teamtailor\.com)$/.test(domain)) source = 'company';
+    else if (/(^|\.)(indeed\.com|ziprecruiter\.com|glassdoor\.com|monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain)) source = 'other';
+    else if (domain) source = 'company'; // company-controlled domain — likely a direct application
+    if (/(recruiter|talent partner|sourcer|^hire@|hiring@)/i.test(from) && source === 'other') source = 'recruiter';
+
+    // Display name from the From header
+    const nameMatch = from.match(/^\s*"?([^"<]+?)"?\s*</);
+    let displayName = nameMatch ? nameMatch[1].trim() : '';
+    displayName = displayName.replace(/\s+(via|from|at)\s+linkedin.*$/i, '').trim();
+    displayName = displayName.replace(/\s+(recruiting|hr|careers|talent|hiring|notifications|team)$/i, '').trim();
+
+    // Try to extract a real company:
+    //   1. If sender domain is a company domain (not a platform), use that.
+    //   2. Else parse "...at Acme" / "...with Acme" out of subject.
+    //   3. Else fall back to display name.
+    let company = '';
+    const platformDomain = source === 'company'
+      ? /(greenhouse|lever|workable|ashbyhq|breezy|smartrecruiters|icims|myworkday|jobvite|bamboohr|teamtailor)/.test(domain)
+      : true;
+    if (domain && !platformDomain && source !== 'linkedin') {
+      // proper company domain: pull root before TLD
+      const root = baseDomain.split('.')[0];
+      if (root) company = root.charAt(0).toUpperCase() + root.slice(1);
+    }
+    const subjAt = subject.match(/\b(?:at|with|from|@)\s+([A-Z][\w&'.\- ]{1,40}?)(?:[.,!?]|\s*[-–—]|\s+team|\s+regarding|\s+for the|\s*$)/);
+    if (!company && subjAt) company = subjAt[1].trim();
+    if (!company && displayName) company = displayName;
+    company = (company || '').replace(/\s+(team|careers|recruiting|hr|talent|hiring)$/i, '').trim();
+
+    // Role — try common subject patterns
+    const rolePatterns = [
+      /(?:application (?:for|to)|applied to|applying for|the )\s*(?:the\s+)?([A-Z][\w&'.\-/+ ]{2,60}?)\s+(?:position|role|opening|opportunity)/,
+      /(?:position|role|opening) (?:of|for)\s+([A-Z][\w&'.\-/+ ]{2,60}?)(?:\s+at\s+|[.,;]|\s*$)/,
+      /(?:for the|for our)\s+([A-Z][\w&'.\-/+ ]{2,60}?)\s+(?:role|position|opening)/,
+      /(?:you applied to|application for)\s+([A-Z][\w&'.\-/+ ]{2,60}?)(?:\s+at|[.,;]|\s*$)/i
+    ];
+    let role = '';
+    for (const re of rolePatterns) {
+      const m = subject.match(re) || snippet.match(re);
+      if (m) { role = m[1].trim().replace(/\s+at\s+.*$/i, ''); break; }
+    }
+    if (role.length > 80) role = role.slice(0, 80) + '…';
+
+    // Date
+    let date = '';
+    if (msg.internalDate) {
+      const d = new Date(Number(msg.internalDate));
+      if (!isNaN(d)) date = d.toISOString().slice(0, 10);
+    }
+    if (!date && dateHeader) {
+      const d = new Date(dateHeader);
+      if (!isNaN(d)) date = d.toISOString().slice(0, 10);
+    }
+
+    return { status, source, company, role, date, subject, from, snippet };
+  }
+
+  function renderGmailResults() {
+    const panel = document.getElementById('gmail-results-panel');
+    panel.hidden = !gmailLastResults.length;
+    document.getElementById('gmail-results-count').textContent = gmailLastResults.length + ' threads';
+    const root = document.getElementById('gmail-results');
+    root.innerHTML = '';
+    for (const r of gmailLastResults) {
+      const checked = gmailSelected.has(r.threadId);
+      const div = document.createElement('div');
+      div.className = 'gmail-result' + (r.isDup ? ' dup' : '');
+      const tags =
+        '<span class="badge ' + r.parsed.status + '">' + statusLabel(r.parsed.status) + '</span>' +
+        ' ' + sourceTag(r.parsed.source);
+      const dupTag = r.existingAppId
+        ? '<div class="dup-tag">already linked · ' + (shouldUpgradeStatus((state.applications.find(a=>a.id===r.existingAppId)||{}).status, r.parsed.status) ? 'will upgrade' : 'no change') + '</div>'
+        : (r.isDup ? '<div class="dup-tag">already imported</div>' : '');
+      div.innerHTML =
+        '<input type="checkbox" data-thread="' + r.threadId + '"' + (checked ? ' checked' : '') + ' />' +
+        '<div>' +
+          '<div class="gr-title">' + escapeHtml(r.parsed.company || '(unknown company)') +
+            (r.parsed.role ? ' · <span style="color:var(--muted);font-weight:500;">' + escapeHtml(r.parsed.role) + '</span>' : '') +
+          '</div>' +
+          '<div class="gr-meta">' + escapeHtml(r.parsed.subject || '(no subject)') + '</div>' +
+          '<div class="gr-meta">' + escapeHtml(r.parsed.from) + (r.parsed.date ? ' · ' + r.parsed.date : '') + '</div>' +
+          '<div class="gr-snippet">' + escapeHtml(r.parsed.snippet || '') + '</div>' +
+        '</div>' +
+        '<div class="gr-tags">' + tags + dupTag + '</div>';
+      root.appendChild(div);
+    }
+    updateApplyButton();
+  }
+
+  function updateApplyButton() {
+    const btn = document.getElementById('gmail-apply-btn');
+    btn.textContent = 'Apply ' + gmailSelected.size + ' selected';
+    btn.disabled = gmailSelected.size === 0;
+  }
+
+  document.getElementById('gmail-results').addEventListener('change', function (e) {
+    const cb = e.target.closest('input[type=checkbox][data-thread]');
+    if (!cb) return;
+    if (cb.checked) gmailSelected.add(cb.dataset.thread);
+    else gmailSelected.delete(cb.dataset.thread);
+    updateApplyButton();
+  });
+
+  document.getElementById('gmail-select-all').addEventListener('click', function () {
+    gmailSelected = new Set(gmailLastResults.map(r => r.threadId));
+    renderGmailResults();
+  });
+  document.getElementById('gmail-select-none').addEventListener('click', function () {
+    gmailSelected = new Set();
+    renderGmailResults();
+  });
+  document.getElementById('gmail-select-new').addEventListener('click', function () {
+    gmailSelected = new Set(gmailLastResults.filter(r => !r.isDup).map(r => r.threadId));
+    renderGmailResults();
+  });
+
+  document.getElementById('gmail-apply-btn').addEventListener('click', function () {
+    if (!gmailSelected.size) return;
+    let added = 0, updated = 0;
+    for (const r of gmailLastResults) {
+      if (!gmailSelected.has(r.threadId)) continue;
+      const p = r.parsed;
+      const existingId = state.gmail.threadToAppId[r.threadId];
+      const existing = existingId ? state.applications.find(a => a.id === existingId) : null;
+      if (existing) {
+        if (shouldUpgradeStatus(existing.status, p.status)) {
+          existing.status = p.status;
+          updated++;
+        }
+        // Backfill missing fields without overwriting user edits.
+        if (!existing.source && p.source) existing.source = p.source;
+        if (!existing.company && p.company) existing.company = p.company;
+        if (!existing.role && p.role) existing.role = p.role;
+      } else {
+        const newApp = {
+          id: uid(),
+          company: p.company || '(unknown)',
+          role: p.role || '',
+          salaryMin: null, salaryMax: null,
+          date: p.date || new Date().toISOString().slice(0, 10),
+          status: p.status,
+          source: p.source || '',
+          location: '',
+          followUp: '', nextAction: '',
+          notes: 'Imported from Gmail · ' + (p.subject || '')
+        };
+        state.applications.unshift(newApp);
+        state.gmail.threadToAppId[r.threadId] = newApp.id;
+        added++;
+      }
+      if (state.gmail.importedThreadIds.indexOf(r.threadId) === -1) {
+        state.gmail.importedThreadIds.push(r.threadId);
+      }
+    }
+    save();
+    renderStats();
+    renderApps();
+    refreshInsightsIfActive();
+    setSyncStatus('Imported ' + added + ' new · updated ' + updated + ' existing.', 'ok');
+    // Re-render results to refresh dup states
+    for (const r of gmailLastResults) {
+      r.existingAppId = state.gmail.threadToAppId[r.threadId] || null;
+      r.isDup = state.gmail.importedThreadIds.indexOf(r.threadId) !== -1 || !!r.existingAppId;
+    }
+    gmailSelected = new Set();
+    renderGmailResults();
+    renderSyncBadge();
+  });
+
+  // ---- Background Sync (Apps Script) ----
+
+  function setBgStatus(text, kind) {
+    const el = document.getElementById('bg-status');
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+
+  // Hydrate inputs + persist on change.
+  const bgUrlInput = document.getElementById('bg-url');
+  const bgSecretInput = document.getElementById('bg-secret');
+  bgUrlInput.value = state.gmail.appsScriptUrl || '';
+  bgSecretInput.value = state.gmail.appsScriptSecret || '';
+  let bgSaveTimer = null;
+  function persistBgInputs() {
+    state.gmail.appsScriptUrl = bgUrlInput.value.trim();
+    state.gmail.appsScriptSecret = bgSecretInput.value.trim();
+    clearTimeout(bgSaveTimer);
+    bgSaveTimer = setTimeout(save, 250);
+  }
+  bgUrlInput.addEventListener('input', persistBgInputs);
+  bgSecretInput.addEventListener('input', persistBgInputs);
+
+  // Adapter: Apps Script returns flat objects; classifier expects gapi shape.
+  function appsScriptThreadToGapi(t) {
+    return {
+      threadId: t.threadId,
+      id: t.messageId,
+      snippet: t.snippet || '',
+      internalDate: String(t.internalDate || 0),
+      payload: {
+        headers: [
+          { name: 'From',    value: t.from || '' },
+          { name: 'Subject', value: t.subject || '' },
+          { name: 'Date',    value: t.date || '' }
+        ]
+      }
+    };
+  }
+
+  async function fetchFromAppsScript(opts) {
+    opts = opts || {};
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      if (!opts.silent) setBgStatus('Paste both URL and secret first.', 'error');
+      return;
+    }
+    if (gmailScanning) return;
+    gmailScanning = true;
+    if (!opts.silent) setBgStatus('Fetching from Apps Script…', 'busy');
+    try {
+      const resp = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=' + (opts.rescan ? 'rescan' : 'results') +
+        '&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      if (!Array.isArray(data.threads)) throw new Error('Malformed response');
+
+      gmailLastResults = [];
+      for (const t of data.threads) {
+        const adapted = appsScriptThreadToGapi(t);
+        const parsed = classifyGmailMessage(adapted);
+        const existingAppId = state.gmail.threadToAppId[t.threadId] || null;
+        const isDup = state.gmail.importedThreadIds.indexOf(t.threadId) !== -1 || !!existingAppId;
+        gmailLastResults.push({
+          threadId: t.threadId, messageId: t.messageId,
+          internalDate: Number(t.internalDate || 0),
+          parsed, isDup, existingAppId
+        });
+      }
+      gmailLastResults.sort((a, b) => b.internalDate - a.internalDate);
+      gmailSelected = new Set();
+      for (const r of gmailLastResults) {
+        if (!r.isDup) gmailSelected.add(r.threadId);
+        else if (r.existingAppId) {
+          const app = state.applications.find(a => a.id === r.existingAppId);
+          if (app && shouldUpgradeStatus(app.status, r.parsed.status)) {
+            gmailSelected.add(r.threadId);
+          }
+        }
+      }
+      state.gmail.lastScanAt = new Date().toISOString();
+      save();
+      renderGmailResults();
+      renderSyncBadge();
+      const ts = data.scannedAt ? new Date(data.scannedAt).toLocaleString() : 'now';
+      const msg = 'Got ' + gmailLastResults.length + ' threads · server scanned ' + ts +
+                  (gmailSelected.size ? ' · ' + gmailSelected.size + ' awaiting review' : '');
+      setBgStatus(msg, 'ok');
+    } catch (e) {
+      console.error(e);
+      if (!opts.silent) setBgStatus('Fetch failed: ' + e.message, 'error');
+    } finally {
+      gmailScanning = false;
+    }
+  }
+
+  document.getElementById('bg-test-btn').addEventListener('click', async function () {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) { setBgStatus('Paste both URL and secret first.', 'error'); return; }
+    setBgStatus('Pinging…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=ping&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      if (!data.ok) throw new Error('Unexpected response');
+      const last = data.scannedAt ? ' · last server scan ' + new Date(data.scannedAt).toLocaleString() : ' · server hasn\'t scanned yet';
+      setBgStatus('Connected' + last, 'ok');
+    } catch (e) {
+      setBgStatus('Connection failed: ' + e.message, 'error');
+    }
+  });
+
+  document.getElementById('bg-fetch-btn').addEventListener('click', () => fetchFromAppsScript({ silent: false }));
+
+  // ---- Auto-scan plumbing ----
+
+  // Show a count of unreviewed pre-selected items on the Gmail Sync nav link.
+  function renderSyncBadge() {
+    const badge = document.getElementById('sync-nav-badge');
+    if (!badge) return;
+    const n = gmailSelected ? gmailSelected.size : 0;
+    if (n > 0) {
+      badge.textContent = String(n);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  // Hydrate the auto-scan checkbox + persist on toggle.
+  const autoScanCb = document.getElementById('gmail-auto-scan');
+  autoScanCb.checked = !!state.gmail.autoScan;
+  autoScanCb.addEventListener('change', () => {
+    state.gmail.autoScan = autoScanCb.checked;
+    save();
+  });
+
+  // Try a silent token request (no popup) and run a scan.
+  // Bails out cleanly if Google can't re-issue a token without UI.
+  async function tryAutoScan() {
+    if (!state.gmail.autoScan) return;
+    if (!state.gmail.clientId) return;
+    if (gmailScanning) return;
+    // Cooldown: don't auto-scan more than once every 5 minutes per page-load
+    // run, in case the user navigates around.
+    if (state.gmail.lastScanAt) {
+      const ageMs = Date.now() - new Date(state.gmail.lastScanAt).getTime();
+      if (ageMs < 5 * 60 * 1000) return;
+    }
+    try {
+      await ensureGapiLoaded();
+    } catch (e) { return; }
+    if (!gmailTokenClient) initGmailTokenClient();
+    if (!gmailTokenClient) return;
+
+    // Wrap the token-client callback in a Promise so we can await silent auth.
+    const tokenResp = await new Promise((resolve) => {
+      const origCb = gmailTokenClient.callback;
+      let settled = false;
+      gmailTokenClient.callback = (resp) => {
+        gmailTokenClient.callback = origCb;
+        if (!settled) { settled = true; resolve(resp); }
+      };
+      try {
+        // prompt: '' = silent; will fail with error 'interaction_required'
+        // or similar if Google needs the user to consent again.
+        gmailTokenClient.requestAccessToken({ prompt: '' });
+      } catch (e) {
+        if (!settled) { settled = true; resolve({ error: e.message }); }
+      }
+      // Hard timeout in case GIS never fires the callback at all.
+      setTimeout(() => {
+        if (!settled) { settled = true; resolve({ error: 'timeout' }); }
+      }, 8000);
+    });
+
+    if (!tokenResp || tokenResp.error || !tokenResp.access_token) return;
+    gapi.client.setToken({ access_token: tokenResp.access_token });
+    document.getElementById('gmail-signin-btn').hidden = true;
+    document.getElementById('gmail-signout-btn').hidden = false;
+    document.getElementById('gmail-scan-panel').hidden = false;
+    await runGmailScan({ silent: true });
+  }
+
   // Initial render
   updateClockUI();
   renderStats();
@@ -1459,6 +2243,31 @@
   renderSessions();
   tickClock();
   setInterval(tickClock, 1000);
+  renderSyncStatus();
+  renderSyncBadge();
+
+  // Page-load data source priority:
+  //   1. If Apps Script Background Sync is configured, fetch from it.
+  //      (Server has already scanned in the background.)
+  //   2. Otherwise, if Auto-scan is on AND the user has signed in
+  //      previously, do a silent in-browser scan once GIS is ready.
+  const hasBgSync = !!(state.gmail.appsScriptUrl && state.gmail.appsScriptSecret);
+  if (hasBgSync) {
+    fetchFromAppsScript({ silent: true });
+  }
+
+  let gisReadyChecks = 0;
+  const gisReadyInterval = setInterval(() => {
+    gisReadyChecks++;
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+      initGmailTokenClient();
+      renderSyncStatus();
+      clearInterval(gisReadyInterval);
+      if (!hasBgSync) tryAutoScan();
+    } else if (gisReadyChecks > 40) { // ~20s
+      clearInterval(gisReadyInterval);
+    }
+  }, 500);
 })();
 </script>
 </body>
