@@ -874,6 +874,7 @@
           <button class="cal-mode-btn"        data-apps-range="month"     role="tab">Last 30d</button>
           <button class="cal-mode-btn"        data-apps-range="all"       role="tab">All time</button>
         </div>
+        <input type="date" id="apps-date-jump" class="cal-jump" title="Jump to a specific date" />
         <div class="apps-range-label" id="apps-range-label">—</div>
       </section>
 
@@ -1414,7 +1415,10 @@
 
   // Date-range filter for the Applications view (separate from the
   // status chip filter). Default = today; persists in memory only.
+  // appsRange: 'today' | 'yesterday' | '2days' | 'week' | 'month' | 'all' | 'custom'
+  // appsCustomDate: 'YYYY-MM-DD' when appsRange === 'custom'
   let appsRange = 'today';
+  let appsCustomDate = '';
 
   function getAppsRangeBounds(range) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -1428,6 +1432,9 @@
     if (range === '2days')     return { from: day(2),    to: day(2),    label: day(2) };
     if (range === 'week')      return { from: day(6),    to: todayStr,  label: 'last 7 days (' + day(6) + ' → ' + todayStr + ')' };
     if (range === 'month')     return { from: day(29),   to: todayStr,  label: 'last 30 days (' + day(29) + ' → ' + todayStr + ')' };
+    if (range === 'custom' && appsCustomDate) {
+      return { from: appsCustomDate, to: appsCustomDate, label: appsCustomDate };
+    }
     return { from: null, to: null, label: 'all time' };
   }
 
@@ -1459,10 +1466,23 @@
       const bounds = getAppsRangeBounds(appsRange);
       lbl.innerHTML = 'Showing <b>' + inRange.length + '</b> · ' + bounds.label;
     }
-    // Sync the active button state
+    // Sync the active button state. When a custom date is picked,
+    // none of the preset pills should look active.
     document.querySelectorAll('[data-apps-range]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.appsRange === appsRange);
     });
+    // Sync the date picker (don't clobber while user is typing in it).
+    const dateInput = document.getElementById('apps-date-jump');
+    if (dateInput && document.activeElement !== dateInput) {
+      if (appsRange === 'custom') {
+        dateInput.value = appsCustomDate;
+      } else {
+        // Show the preset's anchor day in the picker, but don't force
+        // 'custom' mode unless the user actually picks something.
+        const b = getAppsRangeBounds(appsRange);
+        dateInput.value = b.to || '';
+      }
+    }
   }
 
   function renderApps() {
@@ -2279,11 +2299,24 @@
     }
   });
 
-  // Date-range tab clicks on Applications view
+  // Date-range tab clicks on Applications view. Picking a preset
+  // clears any custom date and re-syncs the picker.
   document.getElementById('apps-range').addEventListener('click', function (e) {
     const btn = e.target.closest('[data-apps-range]');
     if (!btn) return;
     appsRange = btn.dataset.appsRange;
+    appsCustomDate = '';
+    renderStats();
+    renderApps();
+  });
+
+  // Picking a specific date overrides the preset and switches to
+  // 'custom' mode (no preset pill shows active).
+  document.getElementById('apps-date-jump').addEventListener('change', function (e) {
+    const v = e.target.value;
+    if (!v) return;
+    appsRange = 'custom';
+    appsCustomDate = v;
     renderStats();
     renderApps();
   });
