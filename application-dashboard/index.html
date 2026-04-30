@@ -1001,45 +1001,10 @@
       </section>
 
       <section class="kpi-grid">
-        <div class="kpi avg">
-          <div class="lbl">Average Salary</div>
-          <div class="val" id="kpi-avg">—</div>
-          <div class="sub" id="kpi-avg-sub">across applications with salary</div>
-        </div>
-        <div class="kpi high">
-          <div class="lbl">Highest</div>
-          <div class="val" id="kpi-high">—</div>
-          <div class="sub" id="kpi-high-sub">—</div>
-        </div>
-        <div class="kpi low">
-          <div class="lbl">Lowest</div>
-          <div class="val" id="kpi-low">—</div>
-          <div class="sub" id="kpi-low-sub">—</div>
-        </div>
         <div class="kpi rate">
           <div class="lbl">Interview Rate</div>
           <div class="val" id="kpi-rate">—</div>
           <div class="sub" id="kpi-rate-sub">interview+ over total</div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>Comp Goal</h2>
-        <div class="goal-panel">
-          <div class="field">
-            <label for="goal-input">Target salary (USD/yr)</label>
-            <div class="goal-input">
-              <span class="currency">$</span>
-              <input type="number" id="goal-input" min="0" step="1000" placeholder="e.g. 150000" />
-            </div>
-            <div class="cell-meta">Salary max meets or exceeds this number to count as on-goal.</div>
-          </div>
-          <div class="goal-meter">
-            <div class="lbl" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600;">On-goal applications</div>
-            <div class="pct" id="goal-pct">—</div>
-            <div class="meter-bar"><div class="fill" id="goal-fill" style="width:0%"></div></div>
-            <div class="meta" id="goal-meta">Set a goal to see how your pipeline lines up.</div>
-          </div>
         </div>
       </section>
 
@@ -1052,18 +1017,6 @@
         <section class="panel">
           <h2>What's Working <span class="count" id="source-total">0</span></h2>
           <div class="bar-chart" id="source-chart"></div>
-        </section>
-      </div>
-
-      <div class="insights-row">
-        <section class="panel">
-          <h2>Average Salary by Status</h2>
-          <div class="bar-chart" id="salary-by-status"></div>
-        </section>
-
-        <section class="panel">
-          <h2>Top Salaries <span class="count" id="top-salary-count">0</span></h2>
-          <div id="top-salary-list" class="salary-list"></div>
         </section>
       </div>
     </section>
@@ -1983,74 +1936,11 @@
       '</div>';
     }).join('');
 
-    // Salary KPIs (use max-salary as the comparable number)
-    const withSalary = apps.filter(a => appSalary(a) > 0);
-    const salaries = withSalary.map(appSalary);
-    if (salaries.length) {
-      const avg = salaries.reduce((sum, n) => sum + n, 0) / salaries.length;
-      const high = withSalary.reduce((best, a) => appSalary(a) > appSalary(best) ? a : best, withSalary[0]);
-      const low  = withSalary.reduce((worst, a) => appSalary(a) < appSalary(worst) ? a : worst, withSalary[0]);
-      document.getElementById('kpi-avg').textContent = formatSalary(avg);
-      document.getElementById('kpi-avg-sub').textContent = salaries.length + ' of ' + total + ' application(s) with salary';
-      document.getElementById('kpi-high').textContent = appSalaryLabel(high);
-      document.getElementById('kpi-high-sub').textContent = high.company + ' · ' + high.role;
-      document.getElementById('kpi-low').textContent = appSalaryLabel(low);
-      document.getElementById('kpi-low-sub').textContent = low.company + ' · ' + low.role;
-    } else {
-      document.getElementById('kpi-avg').textContent = '—';
-      document.getElementById('kpi-avg-sub').textContent = 'Add a salary range to see metrics';
-      document.getElementById('kpi-high').textContent = '—';
-      document.getElementById('kpi-high-sub').textContent = '—';
-      document.getElementById('kpi-low').textContent = '—';
-      document.getElementById('kpi-low-sub').textContent = '—';
-    }
-
     // Interview rate (interview + assessment + offer) / total
     const advanced = counts.interview + counts.assessment + counts.offer;
     const rate = total ? Math.round((advanced / total) * 100) : 0;
     document.getElementById('kpi-rate').textContent = total ? rate + '%' : '—';
     document.getElementById('kpi-rate-sub').textContent = advanced + ' of ' + total + ' advanced past applied';
-
-    // Comp goal panel
-    const goalInput = document.getElementById('goal-input');
-    if (state.goalSalary && document.activeElement !== goalInput) goalInput.value = state.goalSalary;
-    const goalPct = document.getElementById('goal-pct');
-    const goalFill = document.getElementById('goal-fill');
-    const goalMeta = document.getElementById('goal-meta');
-    const goal = Number(state.goalSalary);
-    if (goal > 0 && withSalary.length) {
-      const onGoal = withSalary.filter(a => appSalary(a) >= goal).length;
-      const pct = Math.round((onGoal / withSalary.length) * 100);
-      goalPct.textContent = pct + '%';
-      goalPct.classList.toggle('met', pct >= 50);
-      goalPct.classList.toggle('miss', pct < 50);
-      goalFill.style.width = pct + '%';
-      goalMeta.textContent = onGoal + ' of ' + withSalary.length + ' applications meet ' + formatSalary(goal) + '+';
-    } else {
-      goalPct.textContent = goal > 0 ? '—' : '—';
-      goalPct.classList.remove('met', 'miss');
-      goalFill.style.width = '0%';
-      goalMeta.textContent = goal > 0
-        ? 'Add a salary range to applications to compare against your goal.'
-        : 'Set a target salary to see how your pipeline lines up.';
-    }
-
-    // Average salary per status
-    const salaryByStatus = document.getElementById('salary-by-status');
-    const statusAverages = statuses.map(s => {
-      const group = withSalary.filter(a => a.status === s).map(appSalary);
-      const a = group.length ? group.reduce((sum, n) => sum + n, 0) / group.length : 0;
-      return { status: s, avg: a, count: group.length };
-    });
-    const maxAvg = Math.max(1, ...statusAverages.map(r => r.avg));
-    salaryByStatus.innerHTML = statusAverages.map(r => {
-      const pct = (r.avg / maxAvg) * 100;
-      return '<div class="bar-row">' +
-        '<span class="name">' + statusLabel(r.status) + '</span>' +
-        '<span class="track"><span class="fill ' + r.status + '" style="width:' + pct + '%"></span></span>' +
-        '<span class="num">' + (r.count ? formatSalary(r.avg) : '—') + '</span>' +
-      '</div>';
-    }).join('');
 
     // Source / channel breakdown ("What's working")
     // Score each source by both volume AND advancement rate
@@ -2086,24 +1976,6 @@
           (c ? '<div class="source-meta" style="margin: 2px 0 0 142px;">' + adv + '/' + c + ' advanced past Applied · ' + advRate + '%</div>' : '') +
         '</div>';
       }).join('');
-    }
-
-    // Top salaries list
-    const top = withSalary.slice().sort((a, b) => appSalary(b) - appSalary(a)).slice(0, 10);
-    document.getElementById('top-salary-count').textContent = top.length;
-    const list = document.getElementById('top-salary-list');
-    if (!top.length) {
-      list.innerHTML = '<div class="empty" style="padding:16px 8px;">No salaries logged yet. Add a salary range to an application to see it here.</div>';
-    } else {
-      list.innerHTML = top.map(a =>
-        '<div class="salary-item">' +
-          '<div>' +
-            '<div><b>' + escapeHtml(a.company) + '</b> · ' + escapeHtml(a.role) + '</div>' +
-            '<div class="meta">' + statusLabel(a.status) + (a.date ? ' · ' + a.date : '') + (a.location ? ' · ' + escapeHtml(a.location) : '') + '</div>' +
-          '</div>' +
-          '<div class="amt">' + appSalaryLabel(a) + '</div>' +
-        '</div>'
-      ).join('');
     }
   }
 
@@ -2338,17 +2210,6 @@
       renderSessions();
       return;
     }
-  });
-
-  // Comp goal — debounced save so we don't write per-keystroke
-  let goalSaveTimer = null;
-  document.getElementById('goal-input').addEventListener('input', function (e) {
-    const v = Number(e.target.value);
-    state.goalSalary = (isFinite(v) && v > 0) ? v : null;
-    clearTimeout(goalSaveTimer);
-    goalSaveTimer = setTimeout(save, 300);
-    renderInsights();
-    renderApps(); // goal chips on rows update too
   });
 
   document.getElementById('filter-row').addEventListener('click', function (e) {
