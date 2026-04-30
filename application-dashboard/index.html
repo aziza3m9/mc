@@ -2137,11 +2137,23 @@
 
   // Apply currently-selected Gmail results to local state.
   // `opts.silent` suppresses the status toast (used by auto-apply).
-  // Companies that older classifier versions saved by mistake — these
-  // should be overwritten when a better hint comes in from Apps Script.
-  // Also catches "(unknown)" / "Gmail" / "Google" so Clean-up can find them.
-  const PLATFORM_COMPANY_RE = /^(indeed(\s+apply)?|linkedin|ziprecruiter|glassdoor|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smartrecruiters|icims|workday|jobvite|bamboohr|teamtailor|notifications|jobs|careers|no.?reply|the team|apply|gmail|google|google\s+(?:play|workspace|account|cloud|notifications)|\(unknown\))$/i;
-  function isPlatformCompanyName(s) { return !!s && PLATFORM_COMPANY_RE.test(String(s).trim()); }
+  // Companies that older classifier versions saved by mistake. We consider
+  // a string "junk" when the *entire* identifier is just a platform name
+  // (optionally followed by platform-y suffix words like "Apply", "Jobs",
+  // ".com", "Inc"). The point is: if everything in the company field
+  // could plausibly be the platform itself, the real employer wasn't
+  // extracted.
+  const PLATFORM_HEAD_RE = /^(?:indeed|linked\s*in|zip\s*recruiter|glass\s*door|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smart\s*recruiters|icims|workday|jobvite|bamboo\s*hr|team\s*tailor|gmail|google|notifications|jobs|careers|no.?reply|apply|the\s+team)\b/i;
+  const PLATFORM_TAIL_RE = /^(?:[.,]?\s*(?:apply|jobs|hiring|recruiting|careers|team|inc\.?|llc\.?|ltd\.?|corp\.?|com|net|io|co|workspace|account|cloud|play|notifications|hire|hires|talent))*\s*$/i;
+  function isPlatformCompanyName(s) {
+    if (!s) return false;
+    s = String(s).trim();
+    if (s === '(unknown)') return true;
+    const headMatch = s.match(PLATFORM_HEAD_RE);
+    if (!headMatch) return false;
+    const tail = s.slice(headMatch[0].length);
+    return PLATFORM_TAIL_RE.test(tail);
+  }
   function isJunkCompany(s) { return !s || isPlatformCompanyName(s); }
 
   function applySelectedGmailItems(opts) {
