@@ -571,8 +571,6 @@
 
   /* Compact secondary cell */
   .cell-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
-  .company-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .company-line .source-tag { font-size: 10px; padding: 1px 7px; }
 
   /* Gmail Sync */
   .setup-note {
@@ -750,6 +748,7 @@
               <tr>
                 <th style="width: 26px;"></th>
                 <th>Company / Role</th>
+                <th>Source</th>
                 <th>Salary</th>
                 <th>Follow up</th>
                 <th>Status</th>
@@ -1247,7 +1246,7 @@
 
     if (!filtered.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="6" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
+      tr.innerHTML = '<td colspan="7" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
       body.appendChild(tr);
       return;
     }
@@ -1263,16 +1262,14 @@
           '</button>' +
         '</td>' +
         '<td>' +
-          '<div class="company-line">' +
-            '<b>' + escapeHtml(a.company) + '</b>' +
-            (a.source ? ' ' + sourceTag(a.source) : '') +
-          '</div>' +
+          '<b>' + escapeHtml(a.company) + '</b>' +
           '<div class="cell-meta">' +
             (a.role ? escapeHtml(a.role) : '') +
             (a.location ? (a.role ? ' · ' : '') + escapeHtml(a.location) : '') +
             (a.date ? ((a.role || a.location) ? ' · ' : '') + 'applied ' + a.date : '') +
           '</div>' +
         '</td>' +
+        '<td>' + sourceTag(a.source) + '</td>' +
         '<td>' + salaryCell(a) + '</td>' +
         '<td>' + followUpCell(a) + '</td>' +
         '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
@@ -1294,7 +1291,7 @@
           (k ? SOURCE_LABELS[k] : '— pick a channel —') + '</option>'
         ).join('');
         dr.innerHTML =
-          '<td colspan="6">' +
+          '<td colspan="7">' +
             '<div class="details-grid">' +
               '<label>Company' +
                 '<input type="text" data-edit="company" data-id="' + a.id + '" value="' + escapeHtml(a.company || '') + '" />' +
