@@ -460,6 +460,9 @@
     color: var(--text); font-size: 13px;
     backdrop-filter: blur(8px);
   }
+  /* `display: flex` above overrides the user-agent default for [hidden],
+     so we have to re-assert display:none explicitly. */
+  .forgot-banner[hidden] { display: none; }
   .forgot-banner strong { color: var(--amber); }
   .forgot-banner .muted { color: var(--muted); }
   .forgot-banner-text { flex: 1; min-width: 240px; }
