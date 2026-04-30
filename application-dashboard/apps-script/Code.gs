@@ -119,11 +119,24 @@ function rotateSecret() {
 // strings and pass them to the dashboard as `salaryRaw` so the
 // client-side parser sees them — no need to ship the whole body.
 const SALARY_PATTERNS = [
+  // Range with $ on at least one side: "$50,000 - $60,000" / "$50k-$60k"
   /\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?\s*[-–—]\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/g,
+  // Comma-formatted range, no $ required: "50,000 to 60,000"
   /\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:k|K)?\s*(?:to|-|–|—)\s*\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:k|K)?/g,
-  /up to\s*\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi,
-  /starting at\s*\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi,
-  /(?:salary|compensation|base|total comp(?:ensation)?|pay|pays)\s*[:=]?\s*\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi
+  // K-suffix range: "60K-80K" / "60k - 80k"
+  /\$?\s*\d{2,3}\s*[Kk]\s*(?:[-–—]|to)\s*\$?\s*\d{2,3}\s*[Kk]/g,
+  // Boundaries
+  /up to\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi,
+  /starting at\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi,
+  // Salary/comp keyword anchors (allow no $)
+  /(?:salary|compensation|base(?:\s+pay)?|total comp(?:ensation)?|pays?|pay\s+rate)\s*(?:range)?\s*[:=]?\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:k|K)?/gi,
+  // Hourly rates: "$25/hour" / "$25 per hour" / "$25.50 hourly"
+  /\$\s*\d{1,3}(?:\.\d+)?\s*(?:\/|\s+)\s*(?:hr|hour|hourly|per\s*hour|an?\s*hour)/gi,
+  // Hourly without $: "25 per hour" / "25 dollars per hour"
+  /\d{1,3}(?:\.\d+)?\s*(?:dollars?\s*)?(?:per|an?)\s*hour\b/gi,
+  // Annual phrases: "$60,000 annually", "60,000 per year", "$60K/year"
+  /\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:annually|per\s*year|a\s*year|\/year|\/yr)/gi,
+  /\$?\s*\d{2,3}\s*[Kk]\s*(?:annually|per\s*year|a\s*year|\/year|\/yr)/gi
 ];
 
 function extractSalaryRaw(body) {
