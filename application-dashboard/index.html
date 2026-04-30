@@ -427,6 +427,8 @@
 
   /* Compact secondary cell */
   .cell-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .company-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .company-line .source-tag { font-size: 10px; padding: 1px 7px; }
 
   /* Gmail Sync */
   .setup-note {
@@ -1107,10 +1109,14 @@
           '</button>' +
         '</td>' +
         '<td>' +
-          '<b>' + escapeHtml(a.company) + '</b>' +
-          '<div class="cell-meta">' + escapeHtml(a.role) +
-            (a.location ? ' · ' + escapeHtml(a.location) : '') +
-            (a.date ? ' · applied ' + a.date : '') +
+          '<div class="company-line">' +
+            '<b>' + escapeHtml(a.company) + '</b>' +
+            (a.source ? ' ' + sourceTag(a.source) : '') +
+          '</div>' +
+          '<div class="cell-meta">' +
+            (a.role ? escapeHtml(a.role) : '') +
+            (a.location ? (a.role ? ' · ' : '') + escapeHtml(a.location) : '') +
+            (a.date ? ((a.role || a.location) ? ' · ' : '') + 'applied ' + a.date : '') +
           '</div>' +
         '</td>' +
         '<td>' + sourceTag(a.source) + '</td>' +
