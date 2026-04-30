@@ -152,14 +152,13 @@ const PLATFORM_NAME_RE = /^(indeed|linkedin|ziprecruiter|glassdoor|monster|dice|
 // bodies happen to contain words like "your application".
 const NOISE_SENDER_RE = /@(google\.com|googlemail\.com|accounts\.google\.com|googleplay\.com|firebase\.google\.com|googleusercontent\.com)/i;
 
-// Bot/notification personas that send job RECOMMENDATIONS, not
-// application confirmations. ZipRecruiter's "Phil", LinkedIn's "Job
-// alerts", etc. — there's no real applied-to event behind these emails.
-const NOTIFICATION_BOT_FROM_RE = /(?:[A-Z][a-z]+|the\s+team)\s*@\s*(?:zip\s*recruiter|indeed|linked\s*in|glass\s*door|monster|dice)/i;
-
 // Subject patterns that indicate "we recommend these jobs" rather than
 // "you applied to this job". Belt-and-braces alongside the SCAN_QUERY
 // negative terms in case Gmail search doesn't strip them all.
+// NOTE: we used to also blanket-skip "<Name> @ <Platform>" senders,
+// but that was wrong — ZipRecruiter's "Phil" sends real auto-apply
+// confirmations, not just recommendations. Lifecycle emails come
+// through; the subject filter alone catches the digests.
 const RECOMMENDATION_SUBJECT_RE = /(new jobs|jobs (?:for you|matching|near|in)|recommended (?:for you|jobs)|we found .{0,40}(?:jobs|positions|matches)|you (?:might|may) (?:be interested|like)|job (?:alert|recommendations|matches)|daily digest|jobs you might)/i;
 
 function _isPlatformWord(s) {
@@ -283,11 +282,10 @@ function scanInbox() {
       // Skip Google/Gmail-system senders — they aren't job applications
       // even if their bodies happen to match a keyword.
       if (NOISE_SENDER_RE.test(from)) continue;
-      // Skip job-board notification bots ("Phil @ ZipRecruiter", etc.)
-      if (NOTIFICATION_BOT_FROM_RE.test(from)) continue;
       const body = (last.getPlainBody() || '').replace(/\s+/g, ' ').trim();
       const subject = last.getSubject() || '';
-      // Skip job-recommendation digests
+      // Skip job-recommendation digests (subject-only — sender check
+      // would also block ZipRecruiter Phil's auto-apply confirmations).
       if (RECOMMENDATION_SUBJECT_RE.test(subject)) continue;
       out.push({
         threadId: thread.getId(),

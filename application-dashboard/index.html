@@ -1951,13 +1951,20 @@
     const domain = email.includes('@') ? email.split('@')[1] : '';
     const baseDomain = domain.replace(/^.*?([^.]+\.[a-z]+)$/, '$1');
 
-    const isLinkedIn = /(^|\.)linkedin\.com$/.test(domain);
-    const isAts      = /(^|\.)(greenhouse\.io|lever\.co|workable\.com|ashbyhq\.com|breezy\.hr|smartrecruiters\.com|icims\.com|myworkday(jobs)?\.com|jobvite\.com|bamboohr\.com|teamtailor\.com)$/.test(domain);
-    const isJobBoard = /(^|\.)(indeed\.com|ziprecruiter\.com|glassdoor\.com|monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain);
-    const isPlatform = isLinkedIn || isAts || isJobBoard;
+    // Detect platform from BOTH the email domain and the From-display
+    // name. Some platforms send via white-labeled domains (e.g.
+    // ZipRecruiter's auto-apply emails come from senders like "Phil
+    // @ ZipRecruiter <noreply@something.com>"), so the display-name
+    // signal is just as important as the domain.
+    const fromLc         = from.toLowerCase();
+    const isLinkedIn     = /(^|\.)linkedin\.com$/.test(domain) || /\blinked\s*in\b/.test(fromLc);
+    const isIndeed       = /(^|\.)indeed\.com$/.test(domain) || /@\s*indeed\b/.test(fromLc);
+    const isZipRecruiter = /(^|\.)ziprecruiter\.com$/.test(domain) || /@\s*zip\s*recruiter\b/.test(fromLc) || /\bziprecruiter\b/.test(fromLc);
+    const isGlassdoor    = /(^|\.)glassdoor\.com$/.test(domain) || /@\s*glass\s*door\b/.test(fromLc);
+    const isAts          = /(^|\.)(greenhouse\.io|lever\.co|workable\.com|ashbyhq\.com|breezy\.hr|smartrecruiters\.com|icims\.com|myworkday(jobs)?\.com|jobvite\.com|bamboohr\.com|teamtailor\.com)$/.test(domain);
+    const isJobBoard     = isIndeed || isZipRecruiter || isGlassdoor || /(^|\.)(monster\.com|dice\.com|wellfound\.com|angel\.co|otta\.com)$/.test(domain);
+    const isPlatform     = isLinkedIn || isAts || isJobBoard;
 
-    const isIndeed       = /(^|\.)indeed\.com$/.test(domain);
-    const isZipRecruiter = /(^|\.)ziprecruiter\.com$/.test(domain);
     let source = 'other';
     if (isLinkedIn)          source = 'linkedin';
     else if (isIndeed)       source = 'indeed';
@@ -2456,8 +2463,16 @@
           if (app.company !== p.company) { app.company = p.company; fixedCompany++; touched = true; }
         }
         if (p.role && !app.role) { app.role = p.role; filledRole++; touched = true; }
-        if (p.source && (!app.source || app.source === 'other')) {
-          if (app.source !== p.source) { app.source = p.source; touched = true; }
+        // Source upgrade: empty / 'other' / 'recruiter' all yield to a
+        // more specific platform (linkedin/indeed/ziprecruiter/company).
+        // This fixes existing rows tagged "Recruiter" because of "Phil"
+        // matching the recruiter heuristic.
+        const platformSources = new Set(['linkedin', 'indeed', 'ziprecruiter', 'company']);
+        const sourceUpgradable = !app.source || app.source === 'other' ||
+          (app.source === 'recruiter' && platformSources.has(p.source));
+        if (p.source && sourceUpgradable && app.source !== p.source) {
+          app.source = p.source;
+          touched = true;
         }
         if (app.salaryMin == null && p.salaryMin != null) { app.salaryMin = p.salaryMin; filledSalary++; touched = true; }
         if (app.salaryMax == null && p.salaryMax != null) { app.salaryMax = p.salaryMax; touched = true; }
