@@ -837,6 +837,7 @@
           <button class="btn-ghost" id="bg-test-btn">Test connection</button>
           <button class="btn-primary" id="bg-fetch-btn">Fetch latest now</button>
           <button class="btn-ghost" id="bg-reclassify-btn" title="Re-runs the classifier on every imported thread and fixes wrong company / missing title — without creating duplicates.">Re-classify existing rows</button>
+          <button class="btn-ghost" id="bg-cleanup-btn" title="Removes Gmail-imported rows whose company is empty, '(unknown)', or a platform name like 'Indeed Apply'. Manually-edited rows are kept.">Clean up junk imports</button>
         </div>
         <div class="sync-status" id="bg-status">Not configured.</div>
       </section>
@@ -2138,8 +2139,10 @@
   // `opts.silent` suppresses the status toast (used by auto-apply).
   // Companies that older classifier versions saved by mistake — these
   // should be overwritten when a better hint comes in from Apps Script.
-  const PLATFORM_COMPANY_RE = /^(indeed(\s+apply)?|linkedin|ziprecruiter|glassdoor|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smartrecruiters|icims|workday|jobvite|bamboohr|teamtailor|notifications|jobs|careers|no.?reply|the team|apply)$/i;
+  // Also catches "(unknown)" / "Gmail" / "Google" so Clean-up can find them.
+  const PLATFORM_COMPANY_RE = /^(indeed(\s+apply)?|linkedin|ziprecruiter|glassdoor|monster|wellfound|angel\s*list|otta|dice|greenhouse|lever|workable|ashby|breezy|smartrecruiters|icims|workday|jobvite|bamboohr|teamtailor|notifications|jobs|careers|no.?reply|the team|apply|gmail|google|google\s+(?:play|workspace|account|cloud|notifications)|\(unknown\))$/i;
   function isPlatformCompanyName(s) { return !!s && PLATFORM_COMPANY_RE.test(String(s).trim()); }
+  function isJunkCompany(s) { return !s || isPlatformCompanyName(s); }
 
   function applySelectedGmailItems(opts) {
     opts = opts || {};
@@ -2167,9 +2170,19 @@
           existing.company = p.company;
         }
       } else {
+        // Skip threads where we couldn't extract a real company. These
+        // would otherwise show up as "(unknown)" / "Gmail" / etc. and
+        // pollute the dashboard.
+        if (isJunkCompany(p.company)) {
+          // Mark as imported so we don't keep retrying the same thread.
+          if (state.gmail.importedThreadIds.indexOf(r.threadId) === -1) {
+            state.gmail.importedThreadIds.push(r.threadId);
+          }
+          continue;
+        }
         const newApp = {
           id: uid(),
-          company: p.company || '(unknown)',
+          company: p.company,
           role: p.role || '',
           salaryMin: p.salaryMin != null ? p.salaryMin : null,
           salaryMax: p.salaryMax != null ? p.salaryMax : null,
@@ -2346,6 +2359,46 @@
   });
 
   document.getElementById('bg-fetch-btn').addEventListener('click', () => fetchFromAppsScript({ silent: false }));
+
+  // Clean up imported rows where the classifier never extracted a
+  // real company — "(unknown)", "Gmail", "Indeed Apply", etc.
+  // Only touches rows that look auto-imported (notes starts with our
+  // marker), so genuinely user-entered rows are safe.
+  document.getElementById('bg-cleanup-btn').addEventListener('click', function () {
+    const junkApps = state.applications.filter(a =>
+      isJunkCompany(a.company) &&
+      typeof a.notes === 'string' &&
+      a.notes.indexOf('Imported from Gmail') === 0
+    );
+    if (!junkApps.length) {
+      setBgStatus('Nothing to clean — no junk imports found.', 'ok');
+      return;
+    }
+    const ok = window.confirm(
+      'Delete ' + junkApps.length + ' Gmail-imported row(s) with no real company name?\n\n' +
+      'This only removes rows that were auto-imported AND still have a placeholder company ' +
+      '("(unknown)", "Gmail", "Indeed Apply", etc.). Rows you\'ve edited manually are kept.\n\n' +
+      'This cannot be undone.'
+    );
+    if (!ok) return;
+    const junkIds = new Set(junkApps.map(a => a.id));
+    // Drop the apps and any thread→app links pointing at them.
+    state.applications = state.applications.filter(a => !junkIds.has(a.id));
+    for (const tid of Object.keys(state.gmail.threadToAppId)) {
+      if (junkIds.has(state.gmail.threadToAppId[tid])) {
+        delete state.gmail.threadToAppId[tid];
+        // Also remove from importedThreadIds so a future scan can re-try
+        // them once the classifier improves.
+        const idx = state.gmail.importedThreadIds.indexOf(tid);
+        if (idx !== -1) state.gmail.importedThreadIds.splice(idx, 1);
+      }
+    }
+    save();
+    renderStats();
+    renderApps();
+    refreshInsightsIfActive();
+    setBgStatus('Removed ' + junkApps.length + ' junk import(s).', 'ok');
+  });
 
   // Re-classify: pulls fresh data from Apps Script and walks EVERY
   // imported thread (not just newly-selected ones) so we can fix wrong

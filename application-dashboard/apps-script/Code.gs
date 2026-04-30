@@ -137,7 +137,12 @@ function extractSalaryRaw(body) {
 // company, so we have to look in the body. We also try to surface a
 // real job title even when the subject is generic.
 
-const PLATFORM_NAME_RE = /^(indeed|linkedin|ziprecruiter|glassdoor|monster|dice|workday|greenhouse|lever|ashby|noreply|no-?reply|jobs|hiring|careers|apply)\b/i;
+const PLATFORM_NAME_RE = /^(indeed|linkedin|ziprecruiter|glassdoor|monster|dice|workday|greenhouse|lever|ashby|noreply|no-?reply|jobs|hiring|careers|apply|gmail|google|google\s+(?:play|workspace|account|cloud|for|notifications)|the\s+team)\b/i;
+
+// Senders we never want to ingest — these are infrastructure / account
+// notifications from Google itself, not job applications, even if their
+// bodies happen to contain words like "your application".
+const NOISE_SENDER_RE = /@(google\.com|googlemail\.com|accounts\.google\.com|googleplay\.com|firebase\.google\.com|googleusercontent\.com)/i;
 
 function _isPlatformWord(s) {
   return !s || PLATFORM_NAME_RE.test(s.trim());
@@ -256,9 +261,12 @@ function scanInbox() {
     try {
       const messages = thread.getMessages();
       const last = messages[messages.length - 1];
+      const from = last.getFrom() || '';
+      // Skip Google/Gmail-system senders — they aren't job applications
+      // even if their bodies happen to match a keyword.
+      if (NOISE_SENDER_RE.test(from)) continue;
       const body = (last.getPlainBody() || '').replace(/\s+/g, ' ').trim();
       const subject = last.getSubject() || '';
-      const from = last.getFrom() || '';
       out.push({
         threadId: thread.getId(),
         messageId: last.getId(),
