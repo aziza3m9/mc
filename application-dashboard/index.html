@@ -482,9 +482,62 @@
     font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
     line-height: 1.5;
   }
+
+  /* Toasts (status updates / dedup notices) */
+  .session-name-row {
+    margin-top: 12px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .session-name-row label {
+    font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600;
+  }
+  .session-name-row input {
+    font-size: 13px; padding: 8px 10px; max-width: 320px;
+  }
+  .session-name-row input:disabled { opacity: .6; cursor: not-allowed; }
+  .session-row .session-name { font-size: 12px; color: var(--accent); font-weight: 600; }
+
+  /* End of Day report */
+  .eod-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 12px;
+  }
+  @media (max-width: 900px) { .eod-grid { grid-template-columns: repeat(2, 1fr); } }
+  .eod-cell {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; text-align: center;
+  }
+  .eod-num { font-size: 22px; font-weight: 700; color: var(--text); }
+  .eod-lbl { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+  .eod-detail { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+  .eod-row {
+    display: flex; align-items: center; gap: 10px; font-size: 13px;
+    padding: 6px 10px; border-radius: 6px;
+  }
+  .eod-row:hover { background: var(--panel-2); }
+  .eod-row .eod-time { color: var(--muted); font-size: 11px; margin-left: auto; }
+
+  .toasts {
+    position: fixed; top: 16px; right: 16px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px;
+    max-width: 360px; pointer-events: none;
+  }
+  .toast {
+    pointer-events: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    animation: toastIn 0.25s ease-out;
+  }
+  .toast.upgrade { border-left: 3px solid var(--accent); }
+  .toast.dup     { border-left: 3px solid var(--amber); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  .toast.ok      { border-left: 3px solid var(--green); }
+  .toast .toast-title { font-weight: 600; font-size: 13px; }
+  .toast .toast-msg   { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+  .toast.fade-out { opacity: 0; transition: opacity 0.3s ease-out; }
+  @keyframes toastIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 </style>
 </head>
 <body>
+<div id="toast-container" class="toasts" aria-live="polite"></div>
 <div class="app-shell">
 
   <!-- ========== LEFT NAV ========== -->
@@ -585,6 +638,10 @@
             <span class="status-dot" id="status-dot"></span>
             <span id="status-label">Clocked out</span>
           </div>
+          <div class="session-name-row">
+            <label for="session-name">Worker / Project</label>
+            <input type="text" id="session-name" placeholder="e.g. Maria · Acme website" autocomplete="off" />
+          </div>
         </div>
         <div class="clock-actions">
           <button class="btn-primary" id="clock-in-btn">Clock In</button>
@@ -625,6 +682,18 @@
           <div class="subtitle">Salary trends and pipeline analytics across your applications</div>
         </div>
       </header>
+
+      <section class="panel" id="eod-panel">
+        <h2>End of Day Report <span class="count" id="eod-date">today</span></h2>
+        <div class="eod-grid">
+          <div class="eod-cell"><div class="eod-num" id="eod-applied">0</div><div class="eod-lbl">applications submitted</div></div>
+          <div class="eod-cell"><div class="eod-num" id="eod-interviews">0</div><div class="eod-lbl">interview &amp; assessment invites</div></div>
+          <div class="eod-cell"><div class="eod-num" id="eod-offers">0</div><div class="eod-lbl">offers</div></div>
+          <div class="eod-cell"><div class="eod-num" id="eod-rejections">0</div><div class="eod-lbl">rejections</div></div>
+          <div class="eod-cell"><div class="eod-num" id="eod-time">0h 00m</div><div class="eod-lbl">time tracked</div></div>
+        </div>
+        <div id="eod-detail" class="eod-detail"></div>
+      </section>
 
       <section class="panel">
         <h2>Conversion Funnel <span class="count" id="funnel-total">0 applications</span></h2>
@@ -952,17 +1021,28 @@
     const lbl = document.getElementById('status-label');
     const inBtn = document.getElementById('clock-in-btn');
     const outBtn = document.getElementById('clock-out-btn');
+    const nameEl = document.getElementById('session-name');
     if (state.activeSession) {
       dot.classList.add('on');
-      lbl.textContent = 'Clocked in since ' + formatTime(new Date(state.activeSession.start));
+      const since = 'Clocked in since ' + formatTime(new Date(state.activeSession.start));
+      lbl.textContent = state.activeSession.name
+        ? since + ' · ' + state.activeSession.name
+        : since;
       inBtn.disabled = true;
       outBtn.disabled = false;
+      // Lock the name input while a session is active so the user
+      // doesn't accidentally change it mid-session.
+      if (nameEl) {
+        nameEl.value = state.activeSession.name || '';
+        nameEl.disabled = true;
+      }
     } else {
       dot.classList.remove('on');
       lbl.textContent = 'Clocked out';
       document.getElementById('session-elapsed').textContent = '0:00:00';
       inBtn.disabled = false;
       outBtn.disabled = true;
+      if (nameEl) nameEl.disabled = false;
     }
     const navLink = document.getElementById('nav-timesheet');
     if (navLink) navLink.classList.toggle('live', !!state.activeSession);
@@ -970,14 +1050,21 @@
 
   function clockIn() {
     if (state.activeSession) return;
-    state.activeSession = { start: Date.now() };
+    const nameEl = document.getElementById('session-name');
+    const name = nameEl ? nameEl.value.trim() : '';
+    state.activeSession = { start: Date.now(), name: name };
     save();
     updateClockUI();
     renderSessions();
   }
   function clockOut() {
     if (!state.activeSession) return;
-    const session = { id: uid(), start: state.activeSession.start, end: Date.now() };
+    const session = {
+      id: uid(),
+      start: state.activeSession.start,
+      end: Date.now(),
+      name: state.activeSession.name || ''
+    };
     state.sessions.unshift(session);
     state.activeSession = null;
     save();
@@ -1177,6 +1264,7 @@
       div.innerHTML =
         '<div class="top-line">' +
           '<span class="live-tag">● Live</span>' +
+          (state.activeSession.name ? '<span class="session-name">' + escapeHtml(state.activeSession.name) + '</span>' : '') +
           '<span class="duration">' + formatDuration(Date.now() - state.activeSession.start) + '</span>' +
         '</div>' +
         '<div class="times">In ' + formatTime(start) + ' · ' + start.toLocaleDateString() + '</div>';
@@ -1200,6 +1288,7 @@
       div.innerHTML =
         '<div class="top-line">' +
           '<span class="times">' + start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + '</span>' +
+          (s.name ? '<span class="session-name">' + escapeHtml(s.name) + '</span>' : '') +
           '<span class="duration">' + formatDuration(s.end - s.start) + '</span>' +
         '</div>' +
         '<div class="top-line">' +
@@ -1227,8 +1316,64 @@
     return '—';
   }
 
+  // ---------- End of Day Report ----------
+  // Counts applications applied today by their `date` field (YYYY-MM-DD),
+  // plus interview/assessment/offer/rejection signals derived from
+  // status-changed-today markers (we approximate with current status
+  // for any app whose date is today). Time tracked = sessions ending
+  // today + active session's contribution.
+  function renderEodReport() {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const eodDate = document.getElementById('eod-date');
+    if (eodDate) eodDate.textContent = todayStr;
+    const todayApps = state.applications.filter(a => a.date === todayStr);
+    const counts = { applied: 0, interview: 0, assessment: 0, offer: 0, rejected: 0 };
+    for (const a of todayApps) if (counts[a.status] !== undefined) counts[a.status]++;
+    document.getElementById('eod-applied').textContent    = counts.applied + counts.interview + counts.assessment + counts.offer + counts.rejected;
+    document.getElementById('eod-interviews').textContent = counts.interview + counts.assessment;
+    document.getElementById('eod-offers').textContent     = counts.offer;
+    document.getElementById('eod-rejections').textContent = counts.rejected;
+
+    // Time today
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const sodMs = startOfDay.getTime();
+    let dayMs = 0;
+    for (const s of state.sessions) {
+      if (s.end >= sodMs) {
+        dayMs += Math.min(s.end, Date.now()) - Math.max(s.start, sodMs);
+      }
+    }
+    if (state.activeSession) {
+      dayMs += Date.now() - Math.max(state.activeSession.start, sodMs);
+    }
+    const totalMins = Math.floor(dayMs / 60000);
+    const hh = Math.floor(totalMins / 60);
+    const mm = totalMins % 60;
+    document.getElementById('eod-time').textContent = hh + 'h ' + (mm < 10 ? '0' : '') + mm + 'm';
+
+    // Detail list
+    const detail = document.getElementById('eod-detail');
+    detail.innerHTML = '';
+    if (!todayApps.length) {
+      detail.innerHTML = '<div class="empty" style="padding: 8px;">No application activity today.</div>';
+    } else {
+      const sorted = todayApps.slice().sort((a, b) => (STATUS_RANK[b.status] || 0) - (STATUS_RANK[a.status] || 0));
+      for (const a of sorted) {
+        const row = document.createElement('div');
+        row.className = 'eod-row';
+        row.innerHTML =
+          '<span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span>' +
+          '<span>' + escapeHtml(a.company || '(unknown)') + (a.role ? ' · ' + escapeHtml(a.role) : '') + '</span>' +
+          (a.source ? ' ' + sourceTag(a.source) : '');
+        detail.appendChild(row);
+      }
+    }
+  }
+
   // ---------- Insights ----------
   function renderInsights() {
+    renderEodReport();
     const apps = state.applications;
     const total = apps.length;
     document.getElementById('insights-total').textContent = total + ' total';
@@ -2078,19 +2223,81 @@
     return false;
   }
 
+  // In-app toast for status updates and dedup notices. Auto-dismisses
+  // after ~5s. `kind` controls border accent: upgrade | dup | error | ok.
+  function showToast(title, msg, kind) {
+    const c = document.getElementById('toast-container');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = 'toast' + (kind ? ' ' + kind : '');
+    t.innerHTML =
+      '<div class="toast-title">' + escapeHtml(title) + '</div>' +
+      (msg ? '<div class="toast-msg">' + escapeHtml(msg) + '</div>' : '');
+    t.addEventListener('click', () => t.remove());
+    c.appendChild(t);
+    setTimeout(() => t.classList.add('fade-out'), 5000);
+    setTimeout(() => { if (t.parentNode) t.remove(); }, 5400);
+  }
+
+  // Soft dedup: same company + (matching or empty role) + applied date
+  // within 7 days. Catches the same job appearing in two Gmail threads
+  // (e.g., LinkedIn Easy Apply + the company's ATS confirmation).
+  function findDuplicateApp(p, ignoreId) {
+    if (!p.company) return null;
+    const company = p.company.trim().toLowerCase();
+    const role = (p.role || '').trim().toLowerCase();
+    const newDate = p.date ? new Date(p.date).getTime() : Date.now();
+    const window_ = 7 * 24 * 60 * 60 * 1000;
+    for (const a of state.applications) {
+      if (ignoreId && a.id === ignoreId) continue;
+      if (!a.company) continue;
+      if (a.company.trim().toLowerCase() !== company) continue;
+      const aRole = (a.role || '').trim().toLowerCase();
+      if (role && aRole && role !== aRole) continue;
+      const aDate = a.date ? new Date(a.date).getTime() : 0;
+      if (Math.abs(newDate - aDate) > window_) continue;
+      return a;
+    }
+    return null;
+  }
+
   function applySelectedGmailItems(opts) {
     opts = opts || {};
-    if (!gmailSelected.size) return { added: 0, updated: 0 };
-    let added = 0, updated = 0;
+    if (!gmailSelected.size) return { added: 0, updated: 0, deduped: 0 };
+    let added = 0, updated = 0, deduped = 0;
     for (const r of gmailLastResults) {
       if (!gmailSelected.has(r.threadId)) continue;
       const p = r.parsed;
       const existingId = state.gmail.threadToAppId[r.threadId];
-      const existing = existingId ? state.applications.find(a => a.id === existingId) : null;
+      let existing = existingId ? state.applications.find(a => a.id === existingId) : null;
+      // Soft dedup: same employer + role within ±7 days reuses the row,
+      // even if it's a different Gmail thread.
+      if (!existing) {
+        const dup = findDuplicateApp(p);
+        if (dup) {
+          existing = dup;
+          state.gmail.threadToAppId[r.threadId] = dup.id;
+          deduped++;
+          showToast(
+            'Linked existing application',
+            (dup.company || '(unknown)') + (dup.role ? ' · ' + dup.role : '') +
+              ' — kept one row instead of duplicating.',
+            'dup'
+          );
+        }
+      }
       if (existing) {
         if (shouldUpgradeStatus(existing.status, p.status)) {
+          const oldLabel = statusLabel(existing.status);
           existing.status = p.status;
           updated++;
+          showToast(
+            existing.company || 'Application updated',
+            oldLabel + ' → ' + statusLabel(p.status) +
+              (existing.role ? '  ·  ' + existing.role : ''),
+            p.status === 'rejected' ? 'error' :
+            p.status === 'offer' ? 'ok' : 'upgrade'
+          );
         }
         // Backfill missing fields without overwriting user edits.
         if (!existing.source && p.source) existing.source = p.source;
