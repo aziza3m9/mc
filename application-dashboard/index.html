@@ -827,6 +827,34 @@
     display: grid; grid-template-columns: 2fr 1.4fr 0.9fr 0.9fr auto; gap: 12px; align-items: end;
     margin-bottom: 12px;
   }
+  .js-presets {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .js-presets-lbl {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .12em; font-weight: 700; margin-right: 4px;
+  }
+  .preset-chip {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px; font-weight: 600;
+    padding: 6px 12px; border-radius: 999px;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .preset-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px rgba(79,158,255,.25);
+  }
+  .preset-chip.active {
+    background: linear-gradient(135deg, var(--accent-deep), var(--accent));
+    border-color: transparent;
+    color: #06091a;
+    box-shadow: 0 0 14px rgba(79,158,255,.35);
+  }
   .js-actions-cell { display: flex; align-items: flex-end; }
   .js-actions-cell button { width: 100%; }
   @media (max-width: 900px) {
@@ -1319,6 +1347,14 @@
 
       <section class="panel">
         <h2>Search</h2>
+        <div class="js-presets">
+          <span class="js-presets-lbl">Quick search:</span>
+          <button type="button" class="chip preset-chip" data-js-preset="medical-coding">Medical Coding</button>
+          <button type="button" class="chip preset-chip" data-js-preset="sdr">SDR</button>
+          <button type="button" class="chip preset-chip" data-js-preset="bdr">BDR</button>
+          <button type="button" class="chip preset-chip" data-js-preset="founding-bdr">Founding BDR</button>
+          <button type="button" class="chip preset-chip" data-js-preset="epic-analyst">Epic Analyst</button>
+        </div>
         <div class="js-search-grid">
           <div class="field">
             <label for="js-keywords">Keywords</label>
@@ -2515,9 +2551,36 @@
       .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // Canonical keyword strings for the five roles we're hunting.
+  // Adzuna's `what` is full-text and accepts OR for alternates.
+  const JS_PRESETS = {
+    'medical-coding': 'medical coder OR medical coding OR CPC OR CCS OR coding specialist',
+    'sdr':            'sales development representative OR SDR',
+    'bdr':            'business development representative OR BDR',
+    'founding-bdr':   '"founding BDR" OR "founding business development"',
+    'epic-analyst':   'epic analyst OR epic systems analyst OR "epic certified"'
+  };
+
+  function applyJsPreset(key) {
+    const q = JS_PRESETS[key];
+    if (!q) return;
+    document.getElementById('js-keywords').value = q;
+    document.querySelectorAll('.preset-chip').forEach(c => {
+      c.classList.toggle('active', c.dataset.jsPreset === key);
+    });
+    runJsSearch(1);
+  }
+
   // Wire up Job Search view
   hydrateJsInputs();
-  document.getElementById('js-search-btn').addEventListener('click', () => runJsSearch(1));
+  document.getElementById('js-search-btn').addEventListener('click', () => {
+    // Manual keyword change clears any active preset highlight
+    document.querySelectorAll('.preset-chip.active').forEach(c => c.classList.remove('active'));
+    runJsSearch(1);
+  });
+  document.querySelectorAll('[data-js-preset]').forEach(btn => {
+    btn.addEventListener('click', () => applyJsPreset(btn.dataset.jsPreset));
+  });
   document.getElementById('js-keywords').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runJsSearch(1); }
   });
