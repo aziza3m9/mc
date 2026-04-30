@@ -819,6 +819,50 @@
     .modal-body { grid-template-columns: 1fr; }
   }
 
+  /* Job Search view */
+  .js-setup-grid {
+    display: grid; grid-template-columns: 1fr 1fr 200px; gap: 12px;
+  }
+  .js-search-grid {
+    display: grid; grid-template-columns: 2fr 1.4fr 0.9fr 0.9fr auto; gap: 12px; align-items: end;
+    margin-bottom: 12px;
+  }
+  .js-actions-cell { display: flex; align-items: flex-end; }
+  .js-actions-cell button { width: 100%; }
+  @media (max-width: 900px) {
+    .js-setup-grid, .js-search-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .js-setup-grid, .js-search-grid { grid-template-columns: 1fr; }
+  }
+  .js-results { display: flex; flex-direction: column; gap: 10px; }
+  .js-card {
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: grid; grid-template-columns: 1fr auto; gap: 8px 16px;
+    transition: border-color .15s ease, transform .12s ease;
+  }
+  .js-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .js-card .js-title { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -.01em; }
+  .js-card .js-meta  { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.55; }
+  .js-card .js-meta b { color: var(--text); font-weight: 600; }
+  .js-card .js-snippet { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; max-height: 54px; overflow: hidden; }
+  .js-card .js-salary {
+    font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums;
+    color: var(--accent); white-space: nowrap;
+  }
+  .js-card .js-actions {
+    grid-column: 1 / -1;
+    display: flex; gap: 8px; padding-top: 6px; border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  .js-pager {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    margin-top: 14px; font-size: 12px; color: var(--muted);
+  }
+
   /* Toasts (status updates / dedup notices) */
   .session-name-row {
     margin-top: 12px; display: flex; flex-direction: column; gap: 4px;
@@ -915,6 +959,10 @@
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
       <span>Gmail Sync</span>
       <span class="nav-badge" id="sync-nav-badge" hidden>0</span>
+    </a>
+    <a class="nav-link" data-view="jobsearch" href="#jobsearch">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span>Job Search</span>
     </a>
   </nav>
 
@@ -1228,6 +1276,88 @@
       </section>
     </section>
 
+    <!-- VIEW: JOB SEARCH -->
+    <section class="view" id="view-jobsearch">
+      <header class="app-head">
+        <div>
+          <h1>Job Search</h1>
+          <div class="subtitle">Search live job listings via Adzuna — title, company, location, salary, link to apply</div>
+        </div>
+      </header>
+
+      <section class="panel">
+        <h2>Setup</h2>
+        <p class="setup-note">
+          Free Adzuna API. Sign up at
+          <a href="https://developer.adzuna.com/signup" target="_blank" rel="noopener">developer.adzuna.com</a>
+          (1,000 free searches/month). Copy your <b>App ID</b> + <b>App Key</b> here — they're stored locally in your browser only.
+        </p>
+        <div class="js-setup-grid">
+          <div class="field">
+            <label for="js-app-id">App ID</label>
+            <input type="text" id="js-app-id" placeholder="e.g. 12ab3456" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="js-api-key">App Key</label>
+            <input type="text" id="js-api-key" placeholder="long hex string" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="js-country">Country</label>
+            <select id="js-country">
+              <option value="us" selected>United States</option>
+              <option value="gb">United Kingdom</option>
+              <option value="ca">Canada</option>
+              <option value="au">Australia</option>
+              <option value="de">Germany</option>
+              <option value="fr">France</option>
+              <option value="in">India</option>
+              <option value="nl">Netherlands</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Search</h2>
+        <div class="js-search-grid">
+          <div class="field">
+            <label for="js-keywords">Keywords</label>
+            <input type="text" id="js-keywords" placeholder="e.g. medical coder, remote auditor" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="js-where">Location</label>
+            <input type="text" id="js-where" placeholder="e.g. Remote, Boston, 10001" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="js-salary-min">Min salary</label>
+            <input type="number" id="js-salary-min" placeholder="50000" min="0" step="5000" />
+          </div>
+          <div class="field">
+            <label for="js-sort">Sort by</label>
+            <select id="js-sort">
+              <option value="relevance" selected>Relevance</option>
+              <option value="date">Newest</option>
+              <option value="salary">Highest salary</option>
+            </select>
+          </div>
+          <div class="field js-actions-cell">
+            <button class="btn-primary" id="js-search-btn">Search</button>
+          </div>
+        </div>
+        <div class="sync-status" id="js-status">Add credentials, then search.</div>
+      </section>
+
+      <section class="panel" id="js-results-panel" hidden>
+        <h2>Results <span class="count" id="js-results-count">0</span></h2>
+        <div id="js-results" class="js-results"></div>
+        <div class="js-pager" id="js-pager" hidden>
+          <button class="btn-ghost btn-sm" id="js-prev">‹ Prev</button>
+          <span id="js-page-info">Page 1</span>
+          <button class="btn-ghost btn-sm" id="js-next">Next ›</button>
+        </div>
+      </section>
+    </section>
+
   </main>
 </div>
 
@@ -1333,13 +1463,22 @@
             autoApply: g.autoApply === true,
             appsScriptUrl: typeof g.appsScriptUrl === 'string' ? g.appsScriptUrl : '',
             appsScriptSecret: typeof g.appsScriptSecret === 'string' ? g.appsScriptSecret : ''
-          }
+          },
+          jobsearch: (function () {
+            const j = parsed.jobsearch || {};
+            return {
+              adzunaAppId:  typeof j.adzunaAppId  === 'string' ? j.adzunaAppId  : '',
+              adzunaApiKey: typeof j.adzunaApiKey === 'string' ? j.adzunaApiKey : '',
+              country:      typeof j.country      === 'string' ? j.country      : 'us'
+            };
+          })()
         };
       }
     } catch (e) { /* fall through */ }
     return {
       applications: [], sessions: [], activeSession: null, goalSalary: null,
-      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, autoApply: false, appsScriptUrl: '', appsScriptSecret: '' }
+      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, autoApply: false, appsScriptUrl: '', appsScriptSecret: '' },
+      jobsearch: { adzunaAppId: '', adzunaApiKey: '', country: 'us' }
     };
   }
 
@@ -2220,6 +2359,204 @@
     if (v && v.classList.contains('active')) renderInsights();
   }
 
+  // ========================================================================
+  // JOB SEARCH (Adzuna)
+  // ========================================================================
+  let jsCurrentPage = 1;
+  let jsLastQuery = null;     // remember the last successful query for paging
+  let jsSearching = false;
+
+  function setJsStatus(text, kind) {
+    const el = document.getElementById('js-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+
+  function persistJsCreds() {
+    state.jobsearch.adzunaAppId  = document.getElementById('js-app-id').value.trim();
+    state.jobsearch.adzunaApiKey = document.getElementById('js-api-key').value.trim();
+    state.jobsearch.country      = document.getElementById('js-country').value || 'us';
+    save();
+  }
+
+  // Hydrate the Setup inputs on init.
+  function hydrateJsInputs() {
+    const id = document.getElementById('js-app-id');
+    const k  = document.getElementById('js-api-key');
+    const c  = document.getElementById('js-country');
+    if (!id || !k || !c) return;
+    if (state.jobsearch.adzunaAppId)  id.value = state.jobsearch.adzunaAppId;
+    if (state.jobsearch.adzunaApiKey) k.value  = state.jobsearch.adzunaApiKey;
+    if (state.jobsearch.country)      c.value  = state.jobsearch.country;
+  }
+
+  function fmtMoney(n) {
+    if (!isFinite(n) || n <= 0) return '';
+    if (n >= 1000) return '$' + Math.round(n / 1000) + 'k';
+    return '$' + n.toLocaleString();
+  }
+
+  // Adzuna search — calls the public REST endpoint; CORS-friendly.
+  // Docs: https://developer.adzuna.com/docs/search
+  async function runJsSearch(page) {
+    if (jsSearching) return;
+    persistJsCreds();
+    const { adzunaAppId, adzunaApiKey, country } = state.jobsearch;
+    if (!adzunaAppId || !adzunaApiKey) {
+      setJsStatus('Paste your Adzuna App ID and App Key first.', 'error');
+      return;
+    }
+    const q       = document.getElementById('js-keywords').value.trim();
+    const where   = document.getElementById('js-where').value.trim();
+    const salMin  = Number(document.getElementById('js-salary-min').value) || 0;
+    const sortBy  = document.getElementById('js-sort').value || 'relevance';
+    if (!q) { setJsStatus('Add a keyword to search for.', 'error'); return; }
+
+    jsCurrentPage = Math.max(1, Number(page) || 1);
+    jsLastQuery = { q, where, salMin, sortBy, country };
+    const params = new URLSearchParams({
+      app_id: adzunaAppId,
+      app_key: adzunaApiKey,
+      results_per_page: '20',
+      'what': q,
+      'content-type': 'application/json'
+    });
+    if (where)  params.append('where', where);
+    if (salMin) params.append('salary_min', String(salMin));
+    if (sortBy === 'date')   params.append('sort_by', 'date');
+    if (sortBy === 'salary') params.append('sort_by', 'salary');
+    // 'relevance' is the default
+
+    const url = 'https://api.adzuna.com/v1/api/jobs/' + encodeURIComponent(country) +
+                '/search/' + jsCurrentPage + '?' + params.toString();
+
+    jsSearching = true;
+    setJsStatus('Searching Adzuna…', 'busy');
+    try {
+      const r = await fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' });
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try { const e = await r.json(); if (e && e.exception) msg += ' · ' + e.exception; } catch (_) {}
+        throw new Error(msg);
+      }
+      const data = await r.json();
+      const results = data.results || [];
+      renderJsResults(results, data.count || 0);
+      const lo = (jsCurrentPage - 1) * 20 + 1;
+      const hi = lo + results.length - 1;
+      setJsStatus(
+        results.length
+          ? 'Showing ' + lo + '–' + hi + ' of ' + (data.count || results.length).toLocaleString() + ' matches'
+          : 'No matches. Try broader keywords or remove the salary filter.',
+        results.length ? 'ok' : 'error'
+      );
+    } catch (e) {
+      console.error(e);
+      setJsStatus('Search failed: ' + e.message + ' (check your App ID / Key).', 'error');
+    } finally {
+      jsSearching = false;
+    }
+  }
+
+  function renderJsResults(results, totalCount) {
+    const panel = document.getElementById('js-results-panel');
+    const list  = document.getElementById('js-results');
+    panel.hidden = false;
+    document.getElementById('js-results-count').textContent =
+      results.length + (totalCount > results.length ? ' · ' + totalCount.toLocaleString() + ' total' : '');
+    list.innerHTML = '';
+    for (const job of results) {
+      const min = Number(job.salary_min) || 0;
+      const max = Number(job.salary_max) || 0;
+      let salaryText = '—';
+      if (min && max && min !== max) salaryText = fmtMoney(min) + ' – ' + fmtMoney(max);
+      else if (max) salaryText = 'up to ' + fmtMoney(max);
+      else if (min) salaryText = 'from ' + fmtMoney(min);
+      const company  = (job.company && job.company.display_name) || '—';
+      const location = (job.location && job.location.display_name) || '—';
+      const created  = job.created ? new Date(job.created).toLocaleDateString() : '';
+      const desc     = (job.description || '').replace(/<[^>]+>/g, '').slice(0, 280);
+      const div = document.createElement('div');
+      div.className = 'js-card';
+      div.innerHTML =
+        '<div>' +
+          '<div class="js-title">' + escapeHtml(job.title || '(no title)') + '</div>' +
+          '<div class="js-meta">' +
+            '<b>' + escapeHtml(company) + '</b>  ·  ' + escapeHtml(location) +
+            (created ? '  ·  posted ' + created : '') +
+          '</div>' +
+          (desc ? '<div class="js-snippet">' + escapeHtml(desc) + '…</div>' : '') +
+        '</div>' +
+        '<div class="js-salary">' + salaryText + '</div>' +
+        '<div class="js-actions">' +
+          (job.redirect_url
+            ? '<a class="btn-primary btn-sm" target="_blank" rel="noopener" href="' + escapeAttr(job.redirect_url) + '">View / Apply ↗</a>'
+            : '') +
+          '<button class="btn-ghost btn-sm" data-js-save="' + escapeAttr(JSON.stringify({
+            company, role: job.title || '', location,
+            salaryMin: min || null, salaryMax: max || null,
+            url: job.redirect_url || ''
+          })) + '">Save to my applications</button>' +
+        '</div>';
+      list.appendChild(div);
+    }
+    const pager = document.getElementById('js-pager');
+    pager.hidden = !(totalCount > 20 || jsCurrentPage > 1);
+    document.getElementById('js-page-info').textContent =
+      'Page ' + jsCurrentPage + (totalCount ? ' of ' + Math.ceil(totalCount / 20) : '');
+    document.getElementById('js-prev').disabled = jsCurrentPage <= 1;
+    document.getElementById('js-next').disabled = (jsCurrentPage * 20) >= totalCount;
+  }
+
+  function escapeAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Wire up Job Search view
+  hydrateJsInputs();
+  document.getElementById('js-search-btn').addEventListener('click', () => runJsSearch(1));
+  document.getElementById('js-keywords').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); runJsSearch(1); }
+  });
+  // Persist creds on blur so the user doesn't have to retype
+  ['js-app-id', 'js-api-key', 'js-country'].forEach(id => {
+    document.getElementById(id).addEventListener('change', persistJsCreds);
+  });
+  document.getElementById('js-prev').addEventListener('click', () => runJsSearch(jsCurrentPage - 1));
+  document.getElementById('js-next').addEventListener('click', () => runJsSearch(jsCurrentPage + 1));
+
+  // Save a single result into state.applications
+  document.getElementById('js-results').addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-js-save]');
+    if (!btn) return;
+    let payload;
+    try { payload = JSON.parse(btn.dataset.jsSave); } catch (_) { return; }
+    const newApp = {
+      id: uid(),
+      company: payload.company || '(unknown)',
+      role:    payload.role    || '',
+      salaryMin: payload.salaryMin != null ? payload.salaryMin : null,
+      salaryMax: payload.salaryMax != null ? payload.salaryMax : null,
+      date:     new Date().toISOString().slice(0, 10),
+      status:   'applied',
+      source:   'other',
+      location: payload.location || '',
+      followUp: '', nextAction: '',
+      notes:    payload.url ? 'From Adzuna · ' + payload.url : 'From Adzuna'
+    };
+    state.applications.unshift(newApp);
+    save();
+    renderStats();
+    renderApps();
+    refreshInsightsIfActive();
+    showToast('Saved to applications', payload.company + (payload.role ? ' · ' + payload.role : ''), 'ok');
+    btn.disabled = true;
+    btn.textContent = '✓ Saved';
+  });
+
   // ---------- Wire up ----------
   document.getElementById('clock-in-btn').addEventListener('click', clockIn);
   document.getElementById('clock-out-btn').addEventListener('click', clockOut);
@@ -2296,7 +2633,7 @@
   if (_name && !_name.value && !state.activeSession) _name.value = 'Anne';
 
   // View routing
-  const validViews = ['applications', 'timesheet', 'insights', 'sync'];
+  const validViews = ['applications', 'timesheet', 'insights', 'sync', 'jobsearch'];
   function setView(name) {
     if (!validViews.includes(name)) name = 'applications';
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
