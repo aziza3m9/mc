@@ -701,7 +701,6 @@
               <tr>
                 <th style="width: 26px;"></th>
                 <th>Company / Role</th>
-                <th>Source</th>
                 <th>Salary</th>
                 <th>Follow up</th>
                 <th>Status</th>
@@ -1199,7 +1198,7 @@
 
     if (!filtered.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="7" class="empty">No applications yet. Add one above to get started.</td>';
+      tr.innerHTML = '<td colspan="6" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
       body.appendChild(tr);
       return;
     }
@@ -1225,7 +1224,6 @@
             (a.date ? ((a.role || a.location) ? ' · ' : '') + 'applied ' + a.date : '') +
           '</div>' +
         '</td>' +
-        '<td>' + sourceTag(a.source) + '</td>' +
         '<td>' + salaryCell(a) + '</td>' +
         '<td>' + followUpCell(a) + '</td>' +
         '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
@@ -1247,7 +1245,7 @@
           (k ? SOURCE_LABELS[k] : '— pick a channel —') + '</option>'
         ).join('');
         dr.innerHTML =
-          '<td colspan="7">' +
+          '<td colspan="6">' +
             '<div class="details-grid">' +
               '<label>Company' +
                 '<input type="text" data-edit="company" data-id="' + a.id + '" value="' + escapeHtml(a.company || '') + '" />' +
