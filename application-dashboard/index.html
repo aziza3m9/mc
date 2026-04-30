@@ -800,6 +800,11 @@
           <span>Auto-scan when I open the dashboard</span>
           <span class="auto-scan-hint">Silently re-uses your existing Google session — no popup unless your sign-in expires.</span>
         </label>
+        <label class="auto-scan-toggle" style="margin-top: 8px;">
+          <input type="checkbox" id="gmail-auto-apply" />
+          <span>Also auto-apply imports (skip the review step)</span>
+          <span class="auto-scan-hint">When on, every scan immediately imports new threads and applies status upgrades — no clicking required. Heuristic mistakes will land in your data; you can still edit/delete rows manually.</span>
+        </label>
       </section>
 
       <section class="panel">
@@ -919,6 +924,7 @@
             threadToAppId: g.threadToAppId && typeof g.threadToAppId === 'object' ? g.threadToAppId : {},
             lastScanAt: g.lastScanAt || null,
             autoScan: g.autoScan === true,
+            autoApply: g.autoApply === true,
             appsScriptUrl: typeof g.appsScriptUrl === 'string' ? g.appsScriptUrl : '',
             appsScriptSecret: typeof g.appsScriptSecret === 'string' ? g.appsScriptSecret : ''
           }
@@ -927,7 +933,7 @@
     } catch (e) { /* fall through */ }
     return {
       applications: [], sessions: [], activeSession: null, goalSalary: null,
-      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, appsScriptUrl: '', appsScriptSecret: '' }
+      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, autoApply: false, appsScriptUrl: '', appsScriptSecret: '' }
     };
   }
 
@@ -1809,7 +1815,12 @@
       save();
       renderGmailResults();
       renderSyncBadge();
-      if (!opts.silent) {
+      const applied = maybeAutoApply(opts.silent);
+      if (applied) {
+        const msg = 'Imported ' + applied.added + ' new · updated ' + applied.updated + ' existing.';
+        if (!opts.silent) setSyncStatus(msg, 'ok');
+        else setSyncStatus('Auto-sync: ' + msg, 'ok');
+      } else if (!opts.silent) {
         setSyncStatus('Found ' + gmailLastResults.length + ' threads. Review and apply below.', 'ok');
       } else if (gmailSelected.size) {
         setSyncStatus('Auto-scan: ' + gmailSelected.size + ' new item(s) waiting for review.', 'ok');
@@ -1987,8 +1998,11 @@
     renderGmailResults();
   });
 
-  document.getElementById('gmail-apply-btn').addEventListener('click', function () {
-    if (!gmailSelected.size) return;
+  // Apply currently-selected Gmail results to local state.
+  // `opts.silent` suppresses the status toast (used by auto-apply).
+  function applySelectedGmailItems(opts) {
+    opts = opts || {};
+    if (!gmailSelected.size) return { added: 0, updated: 0 };
     let added = 0, updated = 0;
     for (const r of gmailLastResults) {
       if (!gmailSelected.has(r.threadId)) continue;
@@ -2029,8 +2043,10 @@
     renderStats();
     renderApps();
     refreshInsightsIfActive();
-    setSyncStatus('Imported ' + added + ' new · updated ' + updated + ' existing.', 'ok');
-    // Re-render results to refresh dup states
+    if (!opts.silent) {
+      setSyncStatus('Imported ' + added + ' new · updated ' + updated + ' existing.', 'ok');
+    }
+    // Refresh dup state on the in-memory results so the UI reflects reality.
     for (const r of gmailLastResults) {
       r.existingAppId = state.gmail.threadToAppId[r.threadId] || null;
       r.isDup = state.gmail.importedThreadIds.indexOf(r.threadId) !== -1 || !!r.existingAppId;
@@ -2038,7 +2054,10 @@
     gmailSelected = new Set();
     renderGmailResults();
     renderSyncBadge();
-  });
+    return { added, updated };
+  }
+
+  document.getElementById('gmail-apply-btn').addEventListener('click', () => applySelectedGmailItems());
 
   // ---- Background Sync (Apps Script) ----
 
@@ -2131,10 +2150,15 @@
       save();
       renderGmailResults();
       renderSyncBadge();
+      const applied = maybeAutoApply(opts.silent);
       const ts = data.scannedAt ? new Date(data.scannedAt).toLocaleString() : 'now';
-      const msg = 'Got ' + gmailLastResults.length + ' threads · server scanned ' + ts +
-                  (gmailSelected.size ? ' · ' + gmailSelected.size + ' awaiting review' : '');
-      setBgStatus(msg, 'ok');
+      if (applied) {
+        setBgStatus('Server scanned ' + ts + ' · imported ' + applied.added + ' new · updated ' + applied.updated, 'ok');
+      } else {
+        const msg = 'Got ' + gmailLastResults.length + ' threads · server scanned ' + ts +
+                    (gmailSelected.size ? ' · ' + gmailSelected.size + ' awaiting review' : '');
+        setBgStatus(msg, 'ok');
+      }
     } catch (e) {
       console.error(e);
       if (!opts.silent) setBgStatus('Fetch failed: ' + e.message, 'error');
@@ -2188,6 +2212,22 @@
     state.gmail.autoScan = autoScanCb.checked;
     save();
   });
+
+  const autoApplyCb = document.getElementById('gmail-auto-apply');
+  autoApplyCb.checked = !!state.gmail.autoApply;
+  autoApplyCb.addEventListener('change', () => {
+    state.gmail.autoApply = autoApplyCb.checked;
+    save();
+  });
+
+  // After a scan/fetch finishes, auto-import if the user opted in.
+  // Folds the import counts into the existing status messaging so the
+  // user sees one final summary instead of two.
+  function maybeAutoApply(silent) {
+    if (!state.gmail.autoApply) return null;
+    if (!gmailSelected || !gmailSelected.size) return null;
+    return applySelectedGmailItems({ silent: true });
+  }
 
   // Try a silent token request (no popup) and run a scan.
   // Bails out cleanly if Google can't re-issue a token without UI.
