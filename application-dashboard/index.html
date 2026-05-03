@@ -470,11 +470,12 @@
 
   /* Timesheet calendar navigator */
   .cal-toolbar {
-    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-    margin-bottom: 12px;
+    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 14px;
+    row-gap: 12px;
   }
-  .cal-nav { display: flex; gap: 4px; align-items: center; }
-  .cal-nav button { min-width: 40px; }
+  .cal-nav { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .cal-nav button { min-width: 44px; }
   .cal-jump {
     background: var(--panel-2); border: 1px solid var(--border);
     color: var(--text); padding: 6px 10px; border-radius: 6px;
@@ -1979,11 +1980,15 @@
       start = new Date(a); start.setHours(0, 0, 0, 0);
       end   = new Date(a); end.setHours(23, 59, 59, 999);
     } else if (view.mode === 'week') {
+      // Monday → Sunday week. JS getDay(): Sun=0, Mon=1 … Sat=6.
+      // daysFromMonday: how many days to subtract to land on Monday.
+      // Sun → 6 (last week's Mon), Mon → 0, Tue → 1, … Sat → 5.
+      const daysFromMonday = (a.getDay() + 6) % 7;
       start = new Date(a);
-      start.setDate(a.getDate() - a.getDay()); // Sunday
+      start.setDate(a.getDate() - daysFromMonday);
       start.setHours(0, 0, 0, 0);
       end = new Date(start);
-      end.setDate(start.getDate() + 6);
+      end.setDate(start.getDate() + 6); // Sunday
       end.setHours(23, 59, 59, 999);
     } else { // month
       start = new Date(a.getFullYear(), a.getMonth(), 1, 0, 0, 0, 0);
