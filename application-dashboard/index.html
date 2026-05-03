@@ -1362,7 +1362,7 @@
           </div>
           <div class="field">
             <label for="js-where">Location</label>
-            <input type="text" id="js-where" placeholder="e.g. Remote, Boston, 10001" autocomplete="off" />
+            <input type="text" id="js-where" placeholder='Remote, Boston, 10001…' autocomplete="off" />
           </div>
           <div class="field">
             <label for="js-salary-min">Min salary</label>
@@ -2445,13 +2445,19 @@
       return;
     }
     const q       = document.getElementById('js-keywords').value.trim();
-    const where   = document.getElementById('js-where').value.trim();
+    const whereRaw = document.getElementById('js-where').value.trim();
     const salMin  = Number(document.getElementById('js-salary-min').value) || 0;
     const sortBy  = document.getElementById('js-sort').value || 'relevance';
     if (!q) { setJsStatus('Add a keyword to search for.', 'error'); return; }
 
+    // Adzuna's `where` is a real geo (city / ZIP / region). 'Remote' /
+    // 'Anywhere' / 'WFH' aren't valid locations for them, so we
+    // translate that into a keyword filter ('remote') and skip `where`.
+    const isRemote = /^(remote|anywhere|wfh|work\s*from\s*home|telecommute)$/i.test(whereRaw);
+    const where = isRemote ? '' : whereRaw;
+
     jsCurrentPage = Math.max(1, Number(page) || 1);
-    jsLastQuery = { q, where, salMin, sortBy, country };
+    jsLastQuery = { q, where: whereRaw, salMin, sortBy, country, isRemote };
     const params = new URLSearchParams({
       app_id: adzunaAppId,
       app_key: adzunaApiKey,
@@ -2463,6 +2469,8 @@
     if (salMin) params.append('salary_min', String(salMin));
     // Preset alternates ('SDR' OR 'sales development representative' etc.)
     if (jsActivePresetOr) params.append('what_or', jsActivePresetOr);
+    // Remote filter: require the word "remote" in the listing.
+    if (isRemote) params.append('what_phrase', 'remote');
     if (sortBy === 'date')   params.append('sort_by', 'date');
     if (sortBy === 'salary') params.append('sort_by', 'salary');
     // 'relevance' is the default
