@@ -1535,7 +1535,9 @@
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
   function formatTime(d) {
-    return d.toLocaleTimeString(undefined, { hour12: false });
+    return d.toLocaleTimeString(undefined, {
+      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
+    });
   }
   function formatDate(d) {
     return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
