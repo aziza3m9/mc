@@ -886,6 +886,16 @@
     display: flex; gap: 8px; padding-top: 6px; border-top: 1px solid var(--border);
     margin-top: 4px;
   }
+  .js-card.is-dup { opacity: .65; border-style: dashed; }
+  .js-dup-badge {
+    display: inline-block; margin-left: 10px;
+    background: rgba(34,211,164,.14); color: var(--green);
+    border: 1px solid rgba(34,211,164,.4);
+    padding: 2px 8px; border-radius: 999px;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: .06em; text-transform: uppercase;
+    vertical-align: middle;
+  }
   .js-pager {
     display: flex; align-items: center; justify-content: center; gap: 12px;
     margin-top: 14px; font-size: 12px; color: var(--muted);
@@ -2506,12 +2516,30 @@
     }
   }
 
+  // Match a search result against the user's existing applications.
+  // Returns the existing app if found, else null. Match heuristic:
+  // case-insensitive company match + role substring overlap.
+  function findExistingApp(jobTitle, jobCompany) {
+    if (!jobCompany) return null;
+    const c = jobCompany.trim().toLowerCase();
+    const t = (jobTitle || '').trim().toLowerCase();
+    for (const a of state.applications) {
+      if (!a.company) continue;
+      if (a.company.trim().toLowerCase() !== c) continue;
+      // No title from either side → match by company only
+      if (!t || !a.role) return a;
+      const aRole = a.role.toLowerCase();
+      if (aRole === t || aRole.indexOf(t) !== -1 || t.indexOf(aRole) !== -1) return a;
+    }
+    return null;
+  }
+
   function renderJsResults(results, totalCount) {
     const panel = document.getElementById('js-results-panel');
     const list  = document.getElementById('js-results');
     panel.hidden = false;
-    document.getElementById('js-results-count').textContent =
-      results.length + (totalCount > results.length ? ' · ' + totalCount.toLocaleString() + ' total' : '');
+
+    let dupCount = 0;
     list.innerHTML = '';
     for (const job of results) {
       const min = Number(job.salary_min) || 0;
@@ -2524,11 +2552,24 @@
       const location = (job.location && job.location.display_name) || '—';
       const created  = job.created ? new Date(job.created).toLocaleDateString() : '';
       const desc     = (job.description || '').replace(/<[^>]+>/g, '').slice(0, 280);
+      const existing = findExistingApp(job.title || '', company);
+      if (existing) dupCount++;
+      const dupBadge = existing
+        ? '<span class="js-dup-badge" title="You already have this in your Applications dashboard (status: ' +
+          statusLabel(existing.status) + ')">✓ Already in dashboard · ' + statusLabel(existing.status) + '</span>'
+        : '';
+      const saveBtn = existing
+        ? '<button class="btn-ghost btn-sm" disabled>✓ Already saved</button>'
+        : '<button class="btn-ghost btn-sm" data-js-save="' + escapeAttr(JSON.stringify({
+            company, role: job.title || '', location,
+            salaryMin: min || null, salaryMax: max || null,
+            url: job.redirect_url || ''
+          })) + '">Save to my applications</button>';
       const div = document.createElement('div');
-      div.className = 'js-card';
+      div.className = 'js-card' + (existing ? ' is-dup' : '');
       div.innerHTML =
         '<div>' +
-          '<div class="js-title">' + escapeHtml(job.title || '(no title)') + '</div>' +
+          '<div class="js-title">' + escapeHtml(job.title || '(no title)') + dupBadge + '</div>' +
           '<div class="js-meta">' +
             '<b>' + escapeHtml(company) + '</b>  ·  ' + escapeHtml(location) +
             (created ? '  ·  posted ' + created : '') +
@@ -2540,14 +2581,16 @@
           (job.redirect_url
             ? '<a class="btn-primary btn-sm" target="_blank" rel="noopener" href="' + escapeAttr(job.redirect_url) + '">View / Apply ↗</a>'
             : '') +
-          '<button class="btn-ghost btn-sm" data-js-save="' + escapeAttr(JSON.stringify({
-            company, role: job.title || '', location,
-            salaryMin: min || null, salaryMax: max || null,
-            url: job.redirect_url || ''
-          })) + '">Save to my applications</button>' +
+          saveBtn +
         '</div>';
       list.appendChild(div);
     }
+
+    document.getElementById('js-results-count').textContent =
+      results.length +
+      (totalCount > results.length ? ' · ' + totalCount.toLocaleString() + ' total' : '') +
+      (dupCount ? ' · ' + dupCount + ' already in your dashboard' : '');
+
     const pager = document.getElementById('js-pager');
     pager.hidden = !(totalCount > 20 || jsCurrentPage > 1);
     document.getElementById('js-page-info').textContent =
