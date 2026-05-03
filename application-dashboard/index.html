@@ -2461,6 +2461,8 @@
     });
     if (where)  params.append('where', where);
     if (salMin) params.append('salary_min', String(salMin));
+    // Preset alternates ('SDR' OR 'sales development representative' etc.)
+    if (jsActivePresetOr) params.append('what_or', jsActivePresetOr);
     if (sortBy === 'date')   params.append('sort_by', 'date');
     if (sortBy === 'salary') params.append('sort_by', 'salary');
     // 'relevance' is the default
@@ -2552,19 +2554,27 @@
   }
 
   // Canonical keyword strings for the five roles we're hunting.
-  // Adzuna's `what` is full-text and accepts OR for alternates.
+  // Adzuna's `what` is plain full-text, NOT a query DSL — words like
+  // OR / quotes get treated as literal tokens. So we use a single
+  // canonical phrase per role; alternates are handled via `what_or`
+  // (comma-separated) sent alongside in the search call.
   const JS_PRESETS = {
-    'medical-coding': 'medical coder OR medical coding OR CPC OR CCS OR coding specialist',
-    'sdr':            'sales development representative OR SDR',
-    'bdr':            'business development representative OR BDR',
-    'founding-bdr':   '"founding BDR" OR "founding business development"',
-    'epic-analyst':   'epic analyst OR epic systems analyst OR "epic certified"'
+    'medical-coding': { what: 'medical coder',                        what_or: 'medical coder,medical coding,coding specialist,CPC,CCS' },
+    'sdr':            { what: 'sales development representative',     what_or: 'sales development representative,SDR' },
+    'bdr':            { what: 'business development representative',  what_or: 'business development representative,BDR' },
+    'founding-bdr':   { what: 'founding business development',        what_or: 'founding BDR,founding business development,founding sales' },
+    'epic-analyst':   { what: 'epic analyst',                         what_or: 'epic analyst,epic systems analyst,epic certified' }
   };
 
+  // When a chip is active, runJsSearch attaches its `what_or` so
+  // Adzuna returns jobs matching ANY of the alternates.
+  let jsActivePresetOr = '';
+
   function applyJsPreset(key) {
-    const q = JS_PRESETS[key];
-    if (!q) return;
-    document.getElementById('js-keywords').value = q;
+    const p = JS_PRESETS[key];
+    if (!p) return;
+    document.getElementById('js-keywords').value = p.what;
+    jsActivePresetOr = p.what_or || '';
     document.querySelectorAll('.preset-chip').forEach(c => {
       c.classList.toggle('active', c.dataset.jsPreset === key);
     });
@@ -2574,8 +2584,9 @@
   // Wire up Job Search view
   hydrateJsInputs();
   document.getElementById('js-search-btn').addEventListener('click', () => {
-    // Manual keyword change clears any active preset highlight
+    // Manual keyword change clears any active preset highlight + alternates
     document.querySelectorAll('.preset-chip.active').forEach(c => c.classList.remove('active'));
+    jsActivePresetOr = '';
     runJsSearch(1);
   });
   document.querySelectorAll('[data-js-preset]').forEach(btn => {
