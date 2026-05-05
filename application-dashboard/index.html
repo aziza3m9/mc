@@ -1559,6 +1559,17 @@
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+  // Local-calendar YYYY-MM-DD. Don't use toISOString() for "today" —
+  // it converts via UTC, so on the user's local evening it can return
+  // tomorrow's date.
+  function ymdLocal(d) {
+    d = d || new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return yyyy + '-' + mm + '-' + dd;
+  }
+
   function formatTime(d) {
     return d.toLocaleTimeString(undefined, {
       hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
@@ -1762,9 +1773,9 @@
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const day = (n) => {
       const d = new Date(today.getTime() - n * 86400000);
-      return d.toISOString().slice(0, 10);
+      return ymdLocal(d);
     };
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = ymdLocal(today);
     if (range === 'today')     return { from: todayStr,  to: todayStr,  label: 'today (' + todayStr + ')' };
     if (range === 'yesterday') return { from: day(1),    to: day(1),    label: 'yesterday (' + day(1) + ')' };
     if (range === '2days')     return { from: day(2),    to: day(2),    label: day(2) };
@@ -2738,7 +2749,7 @@
       role:    payload.role    || '',
       salaryMin: payload.salaryMin != null ? payload.salaryMin : null,
       salaryMax: payload.salaryMax != null ? payload.salaryMax : null,
-      date:     new Date().toISOString().slice(0, 10),
+      date:     ymdLocal(),
       status:   'applied',
       source:   'other',
       location: payload.location || '',
@@ -2990,7 +3001,7 @@
     document.getElementById('ma-role').value = '';
     document.getElementById('ma-source').value = '';
     document.getElementById('ma-status').value = 'applied';
-    document.getElementById('ma-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('ma-date').value = ymdLocal();
     document.getElementById('ma-location').value = '';
     document.getElementById('ma-url').value = '';
     document.getElementById('ma-notes').value = '';
@@ -3018,7 +3029,7 @@
       company,
       role:     document.getElementById('ma-role').value.trim(),
       salaryMin: null, salaryMax: null,
-      date:     document.getElementById('ma-date').value || new Date().toISOString().slice(0, 10),
+      date:     document.getElementById('ma-date').value || ymdLocal(),
       status:   document.getElementById('ma-status').value || 'applied',
       source:   document.getElementById('ma-source').value || '',
       location: document.getElementById('ma-location').value.trim(),
@@ -3820,7 +3831,7 @@
           role: p.role || '',
           salaryMin: p.salaryMin != null ? p.salaryMin : null,
           salaryMax: p.salaryMax != null ? p.salaryMax : null,
-          date: p.date || new Date().toISOString().slice(0, 10),
+          date: p.date || ymdLocal(),
           status: p.status,
           source: p.source || '',
           location: '',
