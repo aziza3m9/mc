@@ -1079,6 +1079,7 @@
                 <th style="width: 26px;"></th>
                 <th>Company / Role</th>
                 <th>Source</th>
+                <th>Link</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -1834,7 +1835,7 @@
 
     if (!filtered.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="5" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
+      tr.innerHTML = '<td colspan="6" class="empty">No applications yet — Gmail Sync will pull them in once configured.</td>';
       body.appendChild(tr);
       return;
     }
@@ -1857,13 +1858,11 @@
             (a.date ? ((a.role || a.location) ? ' · ' : '') + 'applied ' + a.date : '') +
           '</div>' +
         '</td>' +
+        '<td>' + sourceTag(a.source) + '</td>' +
         '<td>' +
-          '<div class="source-cell">' +
-            sourceTag(a.source) +
-            (a.url
-              ? ' <a class="job-url-btn" target="_blank" rel="noopener" href="' + escapeAttr(a.url) + '">View posting ↗</a>'
-              : '') +
-          '</div>' +
+          (a.url
+            ? '<a class="job-url-btn" target="_blank" rel="noopener" href="' + escapeAttr(a.url) + '">View ↗</a>'
+            : '<span class="cell-meta">—</span>') +
         '</td>' +
         '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
         '<td><div class="row-actions">' +
@@ -1882,7 +1881,7 @@
           '<option value="' + s + '"' + (s === a.status ? ' selected' : '') + '>' + statusLabel(s) + '</option>'
         ).join('');
         dr.innerHTML =
-          '<td colspan="5">' +
+          '<td colspan="6">' +
             '<div class="details-grid">' +
               '<label>Status' +
                 '<select data-edit="status" data-id="' + a.id + '">' + statusOptions + '</select>' +
