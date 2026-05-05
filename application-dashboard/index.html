@@ -1152,6 +1152,7 @@
             <button class="cal-mode-btn" data-cal-mode="day"   role="tab">Day</button>
             <button class="cal-mode-btn active" data-cal-mode="week"  role="tab">Week</button>
             <button class="cal-mode-btn" data-cal-mode="month" role="tab">Month</button>
+            <button class="cal-mode-btn" data-cal-mode="all"   role="tab">All</button>
           </div>
         </div>
         <div class="cal-range" id="cal-range">—</div>
@@ -2185,9 +2186,12 @@
       end = new Date(start);
       end.setDate(start.getDate() + 6); // Sunday
       end.setHours(23, 59, 59, 999);
-    } else { // month
+    } else if (view.mode === 'month') {
       start = new Date(a.getFullYear(), a.getMonth(), 1, 0, 0, 0, 0);
       end   = new Date(a.getFullYear(), a.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else { // 'all' — no bounds, return min/max dates so all sessions match
+      start = new Date(0);                          // 1970-01-01
+      end   = new Date(8640000000000000);           // max JS date
     }
     return { start, end };
   }
@@ -2233,8 +2237,14 @@
       const sameYear = start.getFullYear() === end.getFullYear();
       label = sameYear ? fmtNoY(start) + ' – ' + fmt(end) : fmt(start) + ' – ' + fmt(end);
     }
-    else                                     label = mfmt(start);
+    else if (timesheetView.mode === 'month') label = mfmt(start);
+    else                                      label = 'All time';
     calRange.textContent = label;
+    // Prev/Next/Today/date-jump don't make sense in 'all' mode
+    const isAll = timesheetView.mode === 'all';
+    document.querySelectorAll('[data-cal-shift]').forEach(b => b.disabled = isAll);
+    const jumpAll = document.getElementById('cal-jump');
+    if (jumpAll) jumpAll.disabled = isAll;
 
     // Stats: sum sessions overlapping the range
     let ms = 0, count = 0;
