@@ -3029,6 +3029,15 @@
     state.applications.unshift(newApp);
     save();
     closeAddModal();
+    // If the current date-range filter would hide the row we just added,
+    // jump to All time so the user sees their entry. Otherwise the
+    // app exists in state but is invisible because (e.g.) Today is set
+    // and they back-dated the entry.
+    const bounds = getAppsRangeBounds(appsRange);
+    if (!appInRange(newApp, bounds)) {
+      appsRange = 'all';
+      appsCustomDate = '';
+    }
     renderStats();
     renderApps();
     refreshInsightsIfActive();
