@@ -2435,7 +2435,31 @@
     state.jobsearch.adzunaAppId  = document.getElementById('js-app-id').value.trim();
     state.jobsearch.adzunaApiKey = document.getElementById('js-api-key').value.trim();
     state.jobsearch.country      = document.getElementById('js-country').value || 'us';
-    save();
+    // Sanity-check localStorage is actually writable. Safari Private mode
+    // throws QuotaExceededError; iOS "Block All Cookies" silently no-ops.
+    let ok = true;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      // Round-trip read to verify it actually stuck (Safari Private silently fails).
+      const back = localStorage.getItem(STORAGE_KEY);
+      if (!back) ok = false;
+    } catch (e) {
+      ok = false;
+    }
+    const el = document.getElementById('js-status');
+    if (el && state.jobsearch.adzunaAppId && state.jobsearch.adzunaApiKey) {
+      if (ok) {
+        el.textContent = '✓ Credentials saved on this device.';
+        el.classList.remove('error', 'busy');
+        el.classList.add('ok');
+      } else {
+        el.textContent = 'Could not save — your browser is blocking localStorage. ' +
+          'On iOS, check Settings → Safari → Block All Cookies (turn off), and ' +
+          "don't use Private Browsing.";
+        el.classList.remove('ok', 'busy');
+        el.classList.add('error');
+      }
+    }
   }
 
   // Hydrate the Setup inputs on init.
@@ -2657,9 +2681,19 @@
   document.getElementById('js-keywords').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runJsSearch(1); }
   });
-  // Persist creds on blur so the user doesn't have to retype
+  // Persist creds on every keystroke/paste — `change` only fires on
+  // blur, which was getting missed when users pasted then refreshed.
+  // Debounced so we're not hammering localStorage on every keystroke.
+  let _jsSaveTimer = null;
+  function scheduleJsSave() {
+    clearTimeout(_jsSaveTimer);
+    _jsSaveTimer = setTimeout(persistJsCreds, 250);
+  }
   ['js-app-id', 'js-api-key', 'js-country'].forEach(id => {
-    document.getElementById(id).addEventListener('change', persistJsCreds);
+    const el = document.getElementById(id);
+    el.addEventListener('input',  scheduleJsSave);
+    el.addEventListener('change', persistJsCreds);
+    el.addEventListener('blur',   persistJsCreds);
   });
   document.getElementById('js-prev').addEventListener('click', () => runJsSearch(jsCurrentPage - 1));
   document.getElementById('js-next').addEventListener('click', () => runJsSearch(jsCurrentPage + 1));
