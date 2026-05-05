@@ -1326,6 +1326,7 @@
         <div class="sync-actions" style="margin-top: 10px;">
           <button class="btn-ghost btn-sm" id="cloud-pull-btn">Pull from cloud</button>
           <button class="btn-ghost btn-sm" id="cloud-push-btn">Push my data to cloud</button>
+          <button class="btn-primary btn-sm" id="cloud-share-btn" title="Generates a one-click setup link for teammates that fills the URL + secret and enables cloud sync.">Copy team setup link</button>
         </div>
         <div class="sync-status" id="cloud-status">Off.</div>
       </section>
@@ -4202,6 +4203,68 @@
     if (!confirm('This will OVERWRITE the cloud copy with what is on this device.\n\nIf any teammate has saved more recent data, it will be lost. Continue?')) return;
     pushToCloud({ silent: false });
   });
+
+  // ---- Team setup link (#sync=<base64>) ----
+  // 'Copy team setup link' encodes the URL + secret + cloud-on flag in
+  // a fragment of this page's URL. Anyone who opens that link gets
+  // auto-configured: fields filled in, cloud sync turned on, instant
+  // pull. The fragment never hits the network (browsers don't send
+  // hash to the server), so GitHub Pages never sees it.
+  function makeSetupLink() {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return null;
+    const blob = JSON.stringify({ u: url, s: secret, c: 1 });
+    // base64url so the hash is shareable in messengers without escaping
+    const b64 = btoa(blob).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return location.origin + location.pathname + '#sync=' + b64;
+  }
+
+  const cloudShareBtn = document.getElementById('cloud-share-btn');
+  if (cloudShareBtn) cloudShareBtn.addEventListener('click', async () => {
+    const link = makeSetupLink();
+    if (!link) {
+      setCloudStatus('Paste the Apps Script URL + Secret above first.', 'error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      setCloudStatus('✓ Setup link copied. Send it to teammates — opening it auto-configures their dashboard.', 'ok');
+      showToast('Link copied', 'Anyone who opens it gets the URL + Secret + Cloud Sync turned on.', 'ok');
+    } catch (e) {
+      // Clipboard API can fail on iOS without secure context / user gesture quirks; show fallback
+      window.prompt('Copy this link manually:', link);
+    }
+  });
+
+  // Apply incoming #sync=... fragment, if present. Runs once on init.
+  (function applySetupHash() {
+    const hash = location.hash || '';
+    const m = hash.match(/^#sync=([A-Za-z0-9_-]+)/);
+    if (!m) return;
+    let payload;
+    try {
+      const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+      payload = JSON.parse(atob(b64 + '==='.slice((b64.length + 3) % 4)));
+    } catch (e) { return; }
+    if (!payload || !payload.u || !payload.s) return;
+    state.gmail.appsScriptUrl = payload.u;
+    state.gmail.appsScriptSecret = payload.s;
+    if (payload.c) state.gmail.cloudSync = true;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // Hydrate the visible inputs if they're already in the DOM
+    const urlEl = document.getElementById('bg-url');
+    const secEl = document.getElementById('bg-secret');
+    const cloudCb = document.getElementById('cloud-sync-toggle');
+    if (urlEl) urlEl.value = payload.u;
+    if (secEl) secEl.value = payload.s;
+    if (cloudCb) cloudCb.checked = !!payload.c;
+    // Strip the hash so the link doesn't accidentally re-share creds.
+    history.replaceState(null, '', location.pathname);
+    setCloudStatus('✓ Auto-configured from team link. Pulling latest…', 'busy');
+    // Fire the pull right away
+    pullFromCloud({ silent: false });
+  })();
 
   // Auto-pull on page load when sync is on (and Apps Script is configured)
   if (state.gmail.cloudSync && state.gmail.appsScriptUrl && state.gmail.appsScriptSecret) {
