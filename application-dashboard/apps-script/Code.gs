@@ -59,7 +59,11 @@ const SCAN_QUERY =
 
 const WINDOW_DAYS = 90;
 const MAX_THREADS = 200;
-const TRIGGER_MINUTES = 5;
+// Tried 5 min but it blew through the Gmail daily quota. 15 is the
+// sustainable steady-state interval; users wanting fresher data
+// should click 'Fetch latest now' on the dashboard (server-side
+// rescan, zero wait).
+const TRIGGER_MINUTES = 15;
 
 /**
  * One-time bootstrap. Generates a shared secret, installs the
