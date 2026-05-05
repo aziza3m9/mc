@@ -111,6 +111,27 @@ function rotateSecret() {
 }
 
 /**
+ * Run this ONCE from the Apps Script editor to grant the Drive
+ * permission needed by Cloud Sync. Redeploy alone doesn't always
+ * trigger the new-scope prompt — running a function that touches
+ * DriveApp does. This creates (or finds) the shared-state file and
+ * logs its name + ID.
+ */
+function enableCloudSync() {
+  const file = getStateFile_();
+  Logger.log('=========================================================');
+  Logger.log('Cloud Sync is now authorized.');
+  Logger.log('Shared-state file: %s', file.getName());
+  Logger.log('File ID: %s', file.getId());
+  Logger.log('Drive URL: %s', file.getUrl());
+  Logger.log('=========================================================');
+  Logger.log('Now go to the dashboard, tick "Cloud Sync" in the panel,');
+  Logger.log('and click "Push my data to cloud" if you want this device');
+  Logger.log("to be the source of truth.");
+  return { ok: true, fileId: file.getId(), fileUrl: file.getUrl() };
+}
+
+/**
  * Walks recent matching threads, returns a flat object per thread.
  * Called by the time trigger and on demand from the web endpoint.
  */
