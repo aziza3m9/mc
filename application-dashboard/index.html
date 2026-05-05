@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- Discourage aggressive caching of the dashboard HTML so new code
+     ships to users on next reload, not days later. GitHub Pages does
+     send a 600s Cache-Control by default; these meta tags help shave
+     it down on most modern browsers. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Application Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -510,6 +517,35 @@
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   }
 
+  /* Team setup link banner — top of every page when #sync= was applied */
+  .setup-link-banner {
+    position: sticky; top: 0; z-index: 110;
+    background: linear-gradient(180deg, rgba(79,158,255,.20), rgba(79,158,255,.10));
+    border-bottom: 1px solid rgba(79,158,255,.45);
+    padding: 12px 24px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    color: var(--text); font-size: 13px;
+    backdrop-filter: blur(8px);
+  }
+  .setup-link-banner[hidden] { display: none; }
+  .setup-link-banner.busy  .setup-link-text { color: var(--accent); }
+  .setup-link-banner.ok    .setup-link-text { color: var(--green); }
+  .setup-link-banner.error { background: linear-gradient(180deg, rgba(245,108,126,.20), rgba(245,108,126,.10)); border-bottom-color: rgba(245,108,126,.5); }
+  .setup-link-banner.error .setup-link-text { color: var(--red); }
+  .setup-link-text { flex: 1; min-width: 240px; font-weight: 600; }
+
+  /* Build version stamp — bottom corner. Use to verify the loaded JS
+     is current after a deploy. Hover to see the full build string. */
+  .build-version {
+    position: fixed; bottom: 6px; right: 8px; z-index: 50;
+    font-size: 10px; color: var(--muted);
+    font-family: monospace; letter-spacing: .04em;
+    opacity: .55;
+    pointer-events: auto;
+    user-select: text;
+  }
+  .build-version:hover { opacity: 1; }
+
   /* Forgot-to-clock-out banner */
   .forgot-banner {
     position: sticky; top: 0; z-index: 100;
@@ -978,6 +1014,10 @@
 </head>
 <body>
 <div id="toast-container" class="toasts" aria-live="polite"></div>
+<div id="setup-link-banner" class="setup-link-banner" hidden role="status">
+  <div class="setup-link-text" id="setup-link-text">—</div>
+  <button class="icon-btn" id="setup-link-close" aria-label="Dismiss">×</button>
+</div>
 <div id="forgot-banner" class="forgot-banner" hidden>
   <div class="forgot-banner-text">
     <strong>Still clocked in</strong> since
@@ -1506,6 +1546,12 @@
   'use strict';
 
   const STORAGE_KEY = 'application-dashboard-v1';
+
+  // Bumped each meaningful release so users + we can verify what JS
+  // is actually loaded in the browser. Surfaced in the bottom-right
+  // .build-version stamp; if a teammate's value differs from yours,
+  // they're on a stale cached page.
+  const BUILD_VERSION = '2026-05-05.team-setup-banner';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -4297,16 +4343,49 @@
   });
 
   // Apply incoming #sync=... fragment, if present. Runs once on init.
-  (function applySetupHash() {
+  // Visible top-of-page banner used by the setup-link flow so users
+  // never have to guess whether the link did anything.
+  function setSetupBanner(text, kind, autoDismiss) {
+    const banner = document.getElementById('setup-link-banner');
+    const txt = document.getElementById('setup-link-text');
+    if (!banner || !txt) return;
+    txt.textContent = text;
+    banner.classList.remove('busy', 'ok', 'error');
+    if (kind) banner.classList.add(kind);
+    banner.hidden = false;
+    if (autoDismiss) {
+      setTimeout(() => { banner.hidden = true; }, autoDismiss);
+    }
+  }
+  (function () {
+    const c = document.getElementById('setup-link-close');
+    if (c) c.addEventListener('click', () => {
+      const b = document.getElementById('setup-link-banner');
+      if (b) b.hidden = true;
+    });
+  })();
+
+  (async function applySetupHash() {
     const hash = location.hash || '';
+    if (!hash.startsWith('#sync')) return;
     const m = hash.match(/^#sync=([A-Za-z0-9_-]+)/);
-    if (!m) return;
+    if (!m) {
+      setSetupBanner('⚠️ Setup link malformed (no payload after #sync=). Ask the sender to re-copy the full link.', 'error');
+      return;
+    }
+    setSetupBanner('Applying team setup link…', 'busy');
     let payload;
     try {
       const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
       payload = JSON.parse(atob(b64 + '==='.slice((b64.length + 3) % 4)));
-    } catch (e) { return; }
-    if (!payload || !payload.u || !payload.s) return;
+    } catch (e) {
+      setSetupBanner('⚠️ Setup link payload could not be decoded: ' + e.message, 'error');
+      return;
+    }
+    if (!payload || !payload.u || !payload.s) {
+      setSetupBanner('⚠️ Setup link payload is missing URL or secret.', 'error');
+      return;
+    }
     state.gmail.appsScriptUrl = payload.u;
     state.gmail.appsScriptSecret = payload.s;
     if (payload.c) state.gmail.cloudSync = true;
@@ -4320,9 +4399,18 @@
     if (cloudCb) cloudCb.checked = !!payload.c;
     // Strip the hash so the link doesn't accidentally re-share creds.
     history.replaceState(null, '', location.pathname);
+
+    setSetupBanner('✓ Team setup link applied. Pulling latest from cloud…', 'busy');
     setCloudStatus('✓ Auto-configured from team link. Pulling latest…', 'busy');
-    // Fire the pull right away
-    pullFromCloud({ silent: false });
+    try {
+      await pullFromCloud({ silent: false });
+      const apps = state.applications.length;
+      const sess = state.sessions.length;
+      setSetupBanner('✓ Team setup link applied · ' + apps + ' apps, ' + sess + ' sessions pulled.', 'ok', 8000);
+      if (state.gmail.cloudSync) startCloudPolling();
+    } catch (e) {
+      setSetupBanner('⚠️ Setup link applied but cloud pull failed: ' + (e && e.message ? e.message : e), 'error');
+    }
   })();
 
   // Auto-pull on page load when sync is on (and Apps Script is configured)
@@ -4629,6 +4717,11 @@
   renderSyncStatus();
   renderSyncBadge();
 
+  // Visible build-version stamp (bottom-right). Helps verify whether
+  // the loaded JS is current after a deploy.
+  const _bv = document.getElementById('build-version');
+  if (_bv) _bv.textContent = 'v' + BUILD_VERSION;
+
   // Page-load data source priority:
   //   1. If Apps Script Background Sync is configured, fetch from it.
   //      (Server has already scanned in the background.)
@@ -4653,5 +4746,6 @@
   }, 500);
 })();
 </script>
+<div class="build-version" id="build-version" title="Dashboard build version. If teammates can't apply the team setup link, ask them to compare this string against yours — if older, they have a stale cache.">v—</div>
 </body>
 </html>
