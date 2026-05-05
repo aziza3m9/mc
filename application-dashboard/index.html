@@ -1633,6 +1633,38 @@
 
   let _cloudPushTimer = null;
   let _cloudPushing = false;
+  let _cloudLastPushAt = 0;
+  let _cloudPollInterval = null;
+  const CLOUD_POLL_MS = 30000;
+
+  // 30-second background pull while the page is open. Skipped when:
+  //   - tab is hidden (saves API calls)
+  //   - a local push is pending or just happened (avoid clobber races)
+  function startCloudPolling() {
+    stopCloudPolling();
+    if (!state.gmail.cloudSync) return;
+    _cloudPollInterval = setInterval(() => {
+      if (document.hidden) return;
+      if (_cloudPushTimer) return;
+      if (Date.now() - _cloudLastPushAt < 5000) return;
+      if (!state.gmail.appsScriptUrl || !state.gmail.appsScriptSecret) return;
+      pullFromCloud({ silent: true });
+    }, CLOUD_POLL_MS);
+  }
+  function stopCloudPolling() {
+    if (_cloudPollInterval) {
+      clearInterval(_cloudPollInterval);
+      _cloudPollInterval = null;
+    }
+  }
+  // Pause polling when tab goes to background; resume when it comes back
+  // and trigger an immediate pull on resume so the user sees the latest.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (state.gmail.cloudSync && state.gmail.appsScriptUrl && state.gmail.appsScriptSecret) {
+      pullFromCloud({ silent: true });
+    }
+  });
   function schedulePushToCloud() {
     if (!state.gmail.cloudSync) return;
     clearTimeout(_cloudPushTimer);
@@ -1661,6 +1693,7 @@
       const data = await r.json();
       if (data.error) throw new Error(data.error);
       state.gmail.lastCloudSyncAt = new Date().toISOString();
+      _cloudLastPushAt = Date.now();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       setCloudStatus('✓ Synced ' + new Date(data.savedAt).toLocaleTimeString() +
                      '  ·  ' + (data.bytes || 0).toLocaleString() + ' bytes', 'ok');
@@ -1690,13 +1723,37 @@
       if (data.error) throw new Error(data.error);
       let payload = {};
       try { payload = JSON.parse(data.state || '{}'); } catch (_) {}
+
+      // Detect change so silent polls don't re-render or toast unless
+      // there's actually new data.
+      const beforeApps = state.applications.length;
+      const beforeSessions = state.sessions.length;
+      const beforeStateBlob = JSON.stringify(state.applications) +
+                              JSON.stringify(state.sessions);
+
       applySyncedPayload(payload);
       state.gmail.lastCloudSyncAt = data.savedAt || new Date().toISOString();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+      const afterStateBlob = JSON.stringify(state.applications) +
+                              JSON.stringify(state.sessions);
+      const changed = beforeStateBlob !== afterStateBlob;
       const ts = data.savedAt ? new Date(data.savedAt).toLocaleString() : 'now';
-      setCloudStatus('✓ Pulled cloud state · saved ' + ts +
-                     '  ·  ' + (state.applications.length) + ' apps, ' +
-                     (state.sessions.length) + ' sessions', 'ok');
+
+      if (!opts.silent) {
+        setCloudStatus('✓ Pulled cloud state · saved ' + ts +
+                       '  ·  ' + (state.applications.length) + ' apps, ' +
+                       (state.sessions.length) + ' sessions', 'ok');
+      } else if (changed) {
+        // Silent poll surfaced new data — flash a small toast.
+        const dApps = state.applications.length - beforeApps;
+        const dSess = state.sessions.length - beforeSessions;
+        const parts = [];
+        if (dApps !== 0) parts.push((dApps > 0 ? '+' : '') + dApps + ' app' + (Math.abs(dApps) === 1 ? '' : 's'));
+        if (dSess !== 0) parts.push((dSess > 0 ? '+' : '') + dSess + ' session' + (Math.abs(dSess) === 1 ? '' : 's'));
+        showToast('Synced from cloud', parts.length ? parts.join(' · ') : 'Updated', 'ok');
+        setCloudStatus('✓ Synced from cloud · ' + ts, 'ok');
+      }
     } catch (e) {
       console.error(e);
       if (!opts.silent) setCloudStatus('Pull failed: ' + e.message, 'error');
@@ -4191,8 +4248,10 @@
       if (cloudSyncCb.checked) {
         setCloudStatus('Cloud sync ON. Pulling latest…', 'busy');
         pullFromCloud({ silent: false });
+        startCloudPolling();
       } else {
         setCloudStatus('Off — local-only.', 'ok');
+        stopCloudPolling();
       }
     });
   }
@@ -4269,6 +4328,7 @@
   // Auto-pull on page load when sync is on (and Apps Script is configured)
   if (state.gmail.cloudSync && state.gmail.appsScriptUrl && state.gmail.appsScriptSecret) {
     pullFromCloud({ silent: true });
+    startCloudPolling();
   } else if (state.gmail.cloudSync) {
     setCloudStatus('Cloud sync ON, but Apps Script URL/secret not set above.', 'error');
   }
