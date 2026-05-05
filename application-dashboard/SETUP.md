@@ -180,6 +180,50 @@ in the background regardless of whether the dashboard is open.
 - The fetched results never leave your browser after that. Imports
   go straight into local state.
 
+## Cloud Sync (shared team mode, optional)
+
+Without Cloud Sync the dashboard is **per-device** — each browser
+has its own private data. To make every user of the URL see the
+same dashboard, turn on Cloud Sync.
+
+How it works
+- Apps Script grows two more endpoints: `state-put` (POST) and
+  `state-get` (GET). Both are gated by the same shared SECRET.
+- The full dashboard state (applications + sessions + Gmail-thread
+  links) is stored as a single JSON file, `apex-dashboard-state.json`,
+  in the script-owner's Google Drive.
+- The dashboard pulls the file on every page load, and pushes
+  (debounced 1.5 sec) on every change.
+- Per-device prefs and credentials (Adzuna keys, Gmail OAuth client,
+  active timesheet session, auto-scan/auto-apply toggles) are NOT
+  synced — those stay local.
+
+Enable
+1. Update Apps Script: paste the new `Code.gs`, save, **Deploy →
+   Manage deployments → ✏️ → New version → Deploy**. You'll be asked
+   to approve a new permission (Drive). Click **Allow**.
+2. In the dashboard's Gmail Sync view, find the **Cloud Sync (shared
+   team)** panel. Tick the toggle.
+3. First time only: decide who's the source of truth. If your local
+   data is the master copy, click **Push my data to cloud**. Otherwise
+   click **Pull from cloud**.
+
+Share with teammates
+- Send them the dashboard URL.
+- They paste the same Apps Script Web App URL + the same SECRET
+  into their Background Sync panel.
+- They tick Cloud Sync. Their dashboard pulls, and from then on they
+  push and pull alongside you.
+
+Caveats
+- **Last write wins.** If two people save changes within a second
+  of each other, one will overwrite the other.
+- The shared SECRET grants read AND write access to the entire
+  dataset to anyone who has it. Treat it like a shared password.
+- Drive file is created on demand under whichever Google account
+  owns the Apps Script. Don't manually delete it from Drive — the
+  script will recreate it next time, but you'll lose the data.
+
 ## Troubleshooting
 
 - **"redirect_uri_mismatch" / "origin_mismatch"** — the page you're

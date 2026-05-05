@@ -326,6 +326,14 @@ function scanInbox() {
  *   ?action=rescan   → forces fresh scan
  * All actions require ?token=<SECRET>.
  */
+/**
+ * Web app entry point.
+ *   ?action=ping       → { ok: true }     (auth-checked)
+ *   ?action=results    → cached scan      (default)
+ *   ?action=rescan     → forces fresh scan
+ *   ?action=state-get  → returns the shared dashboard state JSON
+ * All actions require ?token=<SECRET>.
+ */
 function doGet(e) {
   const params = (e && e.parameter) || {};
   const action = params.action || 'results';
@@ -342,10 +350,73 @@ function doGet(e) {
   if (action === 'rescan') {
     return _json(scanInbox());
   }
+  if (action === 'state-get') {
+    const blob = readSharedState();
+    return _json({ state: blob.state, savedAt: blob.savedAt });
+  }
   // Default: results
   const cached = props.getProperty('LAST_SCAN');
   if (cached) return _json(JSON.parse(cached));
   return _json(scanInbox());
+}
+
+/**
+ * doPost: receives state writes from the dashboard.
+ *   action=state-put + token=<SECRET> + state=<JSON string>
+ * Body must be application/x-www-form-urlencoded so it doesn't trigger
+ * a CORS preflight that Apps Script can't answer.
+ */
+function doPost(e) {
+  const params = (e && e.parameter) || {};
+  const expected = PropertiesService.getScriptProperties().getProperty('SECRET');
+  if (!expected || !params.token || params.token !== expected) {
+    return _json({ error: 'unauthorized' });
+  }
+  if (params.action === 'state-put') {
+    if (!params.state) return _json({ error: 'missing state' });
+    return _json(writeSharedState(params.state));
+  }
+  return _json({ error: 'unknown action: ' + (params.action || '<none>') });
+}
+
+// ---------- Shared state storage (Drive) -------------------------------
+// We store the team's shared dashboard state in a single JSON file in
+// the script-owner's Drive. ScriptProperties has a 9KB-per-property
+// limit which a real applications list quickly exceeds.
+
+const STATE_FILE_ID_KEY = 'STATE_FILE_ID';
+const STATE_FILE_NAME = 'apex-dashboard-state.json';
+
+function getStateFile_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(STATE_FILE_ID_KEY);
+  if (id) {
+    try { return DriveApp.getFileById(id); } catch (_) { /* file deleted, fall through */ }
+  }
+  const file = DriveApp.createFile(STATE_FILE_NAME, '{}', 'application/json');
+  props.setProperty(STATE_FILE_ID_KEY, file.getId());
+  return file;
+}
+
+function readSharedState() {
+  try {
+    const file = getStateFile_();
+    const content = file.getBlob().getDataAsString() || '{}';
+    return { state: content, savedAt: file.getLastUpdated().toISOString() };
+  } catch (e) {
+    return { state: '{}', savedAt: null, error: e.message };
+  }
+}
+
+function writeSharedState(stateJson) {
+  try {
+    JSON.parse(stateJson); // validate
+    const file = getStateFile_();
+    file.setContent(stateJson);
+    return { ok: true, savedAt: new Date().toISOString(), bytes: stateJson.length };
+  } catch (e) {
+    return { error: 'invalid json: ' + e.message };
+  }
 }
 
 function _json(obj) {
