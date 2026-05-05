@@ -704,18 +704,23 @@
 
   /* Compact secondary cell */
   .cell-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
-  .job-url-link {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; border-radius: 5px;
-    background: var(--panel-2); color: var(--accent);
-    text-decoration: none; font-size: 12px; font-weight: 700;
-    margin-left: 6px; vertical-align: middle;
-    border: 1px solid rgba(79,158,255,.3);
-    transition: background .15s ease, box-shadow .15s ease;
+  .source-cell {
+    display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
   }
-  .job-url-link:hover {
+  .job-url-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    text-decoration: none;
+    background: var(--panel-2); color: var(--accent);
+    padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700;
+    letter-spacing: .04em;
+    border: 1px solid rgba(79,158,255,.35);
+    transition: background .15s ease, box-shadow .15s ease, transform .12s ease;
+    white-space: nowrap;
+  }
+  .job-url-btn:hover {
     background: rgba(79,158,255,.15);
-    box-shadow: 0 0 10px rgba(79,158,255,.35);
+    box-shadow: 0 0 12px rgba(79,158,255,.35);
+    transform: translateY(-1px);
   }
 
   /* Gmail Sync */
@@ -1846,16 +1851,20 @@
         '</td>' +
         '<td>' +
           '<b>' + escapeHtml(a.company) + '</b>' +
-          (a.url
-            ? ' <a class="job-url-link" target="_blank" rel="noopener" href="' + escapeAttr(a.url) + '" title="Open job posting">↗</a>'
-            : '') +
           '<div class="cell-meta">' +
             (a.role ? escapeHtml(a.role) : '') +
             (a.location ? (a.role ? ' · ' : '') + escapeHtml(a.location) : '') +
             (a.date ? ((a.role || a.location) ? ' · ' : '') + 'applied ' + a.date : '') +
           '</div>' +
         '</td>' +
-        '<td>' + sourceTag(a.source) + '</td>' +
+        '<td>' +
+          '<div class="source-cell">' +
+            sourceTag(a.source) +
+            (a.url
+              ? ' <a class="job-url-btn" target="_blank" rel="noopener" href="' + escapeAttr(a.url) + '">View posting ↗</a>'
+              : '') +
+          '</div>' +
+        '</td>' +
         '<td><span class="badge ' + a.status + '">' + statusLabel(a.status) + '</span></td>' +
         '<td><div class="row-actions">' +
           '<button class="icon-btn danger" data-del="' + a.id + '">Delete</button>' +
