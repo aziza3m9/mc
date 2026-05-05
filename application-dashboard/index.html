@@ -1304,6 +1304,31 @@
         <div class="sync-status" id="bg-status">Not configured.</div>
       </section>
 
+      <section class="panel">
+        <h2>Cloud Sync (shared team)</h2>
+        <p class="setup-note">
+          When on, the entire dashboard (applications + sessions) is synced
+          to a JSON file in the script owner's Google Drive via your Apps
+          Script. Anyone you share the dashboard URL with — and who pastes
+          the same Web App URL + secret — sees the same data.
+          <br/><br/>
+          <b>Caveats:</b> requires re-deploying Apps Script with the new
+          Drive permission. Last write wins (no conflict resolution). Your
+          Adzuna keys, Gmail OAuth client, and per-device prefs are NOT
+          synced.
+        </p>
+        <label class="auto-scan-toggle">
+          <input type="checkbox" id="cloud-sync-toggle" />
+          <span>Cloud Sync — share data across all users of this URL</span>
+          <span class="auto-scan-hint">Auto-pulls on page load and pushes (debounced 1.5s) on every change.</span>
+        </label>
+        <div class="sync-actions" style="margin-top: 10px;">
+          <button class="btn-ghost btn-sm" id="cloud-pull-btn">Pull from cloud</button>
+          <button class="btn-ghost btn-sm" id="cloud-push-btn">Push my data to cloud</button>
+        </div>
+        <div class="sync-status" id="cloud-status">Off.</div>
+      </section>
+
       <section class="panel" id="gmail-scan-panel" hidden>
         <h2>Scan Inbox <span class="count" id="gmail-last-scan">never scanned</span></h2>
         <div class="sync-grid">
@@ -1533,7 +1558,9 @@
             autoScan: g.autoScan === true,
             autoApply: g.autoApply === true,
             appsScriptUrl: typeof g.appsScriptUrl === 'string' ? g.appsScriptUrl : '',
-            appsScriptSecret: typeof g.appsScriptSecret === 'string' ? g.appsScriptSecret : ''
+            appsScriptSecret: typeof g.appsScriptSecret === 'string' ? g.appsScriptSecret : '',
+            cloudSync: g.cloudSync === true,
+            lastCloudSyncAt: g.lastCloudSyncAt || null
           },
           jobsearch: (function () {
             const j = parsed.jobsearch || {};
@@ -1548,13 +1575,138 @@
     } catch (e) { /* fall through */ }
     return {
       applications: [], sessions: [], activeSession: null, goalSalary: null,
-      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, autoApply: false, appsScriptUrl: '', appsScriptSecret: '' },
+      gmail: { clientId: '', importedThreadIds: [], threadToAppId: {}, lastScanAt: null, autoScan: false, autoApply: false, appsScriptUrl: '', appsScriptSecret: '', cloudSync: false, lastCloudSyncAt: null },
       jobsearch: { adzunaAppId: '', adzunaApiKey: '', country: 'us' }
     };
   }
 
   function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    schedulePushToCloud();
+  }
+
+  // ---------- Cloud Sync (shared team mode) ----------
+  // When state.gmail.cloudSync is on, the entire applications/sessions
+  // dataset is pushed to a JSON file in the script-owner's Google Drive
+  // via Apps Script, and pulled back on every page load. Anyone using
+  // the same Apps Script URL + secret sees the same data.
+  //
+  // Things we DO sync (the team's actual work):
+  //   applications, sessions, gmail.threadToAppId, gmail.importedThreadIds
+  // Things we DON'T sync (per-device prefs and creds):
+  //   any *.appsScriptUrl/Secret, *.adzuna*, *.clientId, *.autoScan,
+  //   *.autoApply, activeSession (per-person clock state),
+  //   *.cloudSync flag itself
+
+  function buildSyncablePayload() {
+    return {
+      applications: state.applications || [],
+      sessions:     state.sessions || [],
+      gmailLinks:   {
+        threadToAppId:     (state.gmail && state.gmail.threadToAppId) || {},
+        importedThreadIds: (state.gmail && state.gmail.importedThreadIds) || []
+      }
+    };
+  }
+
+  function applySyncedPayload(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    if (Array.isArray(payload.applications)) {
+      state.applications = payload.applications.map(migrateApp);
+    }
+    if (Array.isArray(payload.sessions)) {
+      state.sessions = payload.sessions;
+    }
+    if (payload.gmailLinks && typeof payload.gmailLinks === 'object') {
+      state.gmail.threadToAppId = payload.gmailLinks.threadToAppId || {};
+      state.gmail.importedThreadIds = Array.isArray(payload.gmailLinks.importedThreadIds)
+        ? payload.gmailLinks.importedThreadIds : [];
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    renderStats();
+    renderApps();
+    renderSessions();
+    refreshInsightsIfActive();
+  }
+
+  let _cloudPushTimer = null;
+  let _cloudPushing = false;
+  function schedulePushToCloud() {
+    if (!state.gmail.cloudSync) return;
+    clearTimeout(_cloudPushTimer);
+    _cloudPushTimer = setTimeout(() => pushToCloud({ silent: true }), 1500);
+  }
+
+  async function pushToCloud(opts) {
+    opts = opts || {};
+    if (_cloudPushing) return;
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      if (!opts.silent) setCloudStatus('Set the Apps Script URL + secret first (Background Sync panel above).', 'error');
+      return;
+    }
+    _cloudPushing = true;
+    if (!opts.silent) setCloudStatus('Pushing to cloud…', 'busy');
+    try {
+      const body = new URLSearchParams({
+        action: 'state-put',
+        token: secret,
+        state: JSON.stringify(buildSyncablePayload())
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      state.gmail.lastCloudSyncAt = new Date().toISOString();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      setCloudStatus('✓ Synced ' + new Date(data.savedAt).toLocaleTimeString() +
+                     '  ·  ' + (data.bytes || 0).toLocaleString() + ' bytes', 'ok');
+    } catch (e) {
+      console.error(e);
+      setCloudStatus('Push failed: ' + e.message, 'error');
+    } finally {
+      _cloudPushing = false;
+    }
+  }
+
+  async function pullFromCloud(opts) {
+    opts = opts || {};
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      if (!opts.silent) setCloudStatus('Set the Apps Script URL + secret first.', 'error');
+      return;
+    }
+    if (!opts.silent) setCloudStatus('Pulling from cloud…', 'busy');
+    try {
+      const fetchUrl = url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=state-get&token=' + encodeURIComponent(secret);
+      const r = await fetch(fetchUrl, { method: 'GET', mode: 'cors', cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      let payload = {};
+      try { payload = JSON.parse(data.state || '{}'); } catch (_) {}
+      applySyncedPayload(payload);
+      state.gmail.lastCloudSyncAt = data.savedAt || new Date().toISOString();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const ts = data.savedAt ? new Date(data.savedAt).toLocaleString() : 'now';
+      setCloudStatus('✓ Pulled cloud state · saved ' + ts +
+                     '  ·  ' + (state.applications.length) + ' apps, ' +
+                     (state.sessions.length) + ' sessions', 'ok');
+    } catch (e) {
+      console.error(e);
+      if (!opts.silent) setCloudStatus('Pull failed: ' + e.message, 'error');
+    }
+  }
+
+  function setCloudStatus(text, kind) {
+    const el = document.getElementById('cloud-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
   }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -4017,6 +4169,36 @@
   // ScriptProperties cache). This guarantees the latest classifier /
   // salary patterns run on the email bodies. Slower but reliable.
   document.getElementById('bg-fetch-btn').addEventListener('click', () => fetchFromAppsScript({ silent: false, rescan: true }));
+
+  // ---- Cloud Sync wiring ----
+  const cloudSyncCb = document.getElementById('cloud-sync-toggle');
+  if (cloudSyncCb) {
+    cloudSyncCb.checked = !!state.gmail.cloudSync;
+    cloudSyncCb.addEventListener('change', () => {
+      state.gmail.cloudSync = cloudSyncCb.checked;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (cloudSyncCb.checked) {
+        setCloudStatus('Cloud sync ON. Pulling latest…', 'busy');
+        pullFromCloud({ silent: false });
+      } else {
+        setCloudStatus('Off — local-only.', 'ok');
+      }
+    });
+  }
+  const cloudPullBtn = document.getElementById('cloud-pull-btn');
+  if (cloudPullBtn) cloudPullBtn.addEventListener('click', () => pullFromCloud({ silent: false }));
+  const cloudPushBtn = document.getElementById('cloud-push-btn');
+  if (cloudPushBtn) cloudPushBtn.addEventListener('click', () => {
+    if (!confirm('This will OVERWRITE the cloud copy with what is on this device.\n\nIf any teammate has saved more recent data, it will be lost. Continue?')) return;
+    pushToCloud({ silent: false });
+  });
+
+  // Auto-pull on page load when sync is on (and Apps Script is configured)
+  if (state.gmail.cloudSync && state.gmail.appsScriptUrl && state.gmail.appsScriptSecret) {
+    pullFromCloud({ silent: true });
+  } else if (state.gmail.cloudSync) {
+    setCloudStatus('Cloud sync ON, but Apps Script URL/secret not set above.', 'error');
+  }
 
   // Clean up imported rows where the classifier never extracted a
   // real company — "(unknown)", "Gmail", "Indeed Apply", etc.
