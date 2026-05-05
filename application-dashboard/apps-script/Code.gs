@@ -59,7 +59,7 @@ const SCAN_QUERY =
 
 const WINDOW_DAYS = 90;
 const MAX_THREADS = 200;
-const TRIGGER_MINUTES = 15;
+const TRIGGER_MINUTES = 5;
 
 /**
  * One-time bootstrap. Generates a shared secret, installs the
