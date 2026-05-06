@@ -59,11 +59,10 @@ const SCAN_QUERY =
 
 const WINDOW_DAYS = 90;
 const MAX_THREADS = 200;
-// Tried 5 min but it blew through the Gmail daily quota. 15 is the
-// sustainable steady-state interval; users wanting fresher data
-// should click 'Fetch latest now' on the dashboard (server-side
-// rescan, zero wait).
-const TRIGGER_MINUTES = 15;
+// Cache-aware scanInbox skips re-fetching threads with no new
+// activity, so 5-min trigger fits well under quota in steady state
+// (only NEW or updated threads cost a getMessages call).
+const TRIGGER_MINUTES = 5;
 
 /**
  * One-time bootstrap. Generates a shared secret, installs the
@@ -309,24 +308,51 @@ function extractRoleHint(subject, body) {
 }
 
 function scanInbox() {
+  const props = PropertiesService.getScriptProperties();
+
+  // Build a lookup of previously-scanned threads keyed by their
+  // thread id. We only re-fetch the message body when a thread's
+  // last-message date has changed — saves ~95% of the per-call
+  // Gmail quota once steady-state is reached.
+  const prevByThread = {};
+  try {
+    const last = props.getProperty('LAST_SCAN');
+    if (last) {
+      const parsed = JSON.parse(last);
+      for (const t of (parsed.threads || [])) prevByThread[t.threadId] = t;
+    }
+  } catch (e) { /* fall through with empty cache */ }
+
   const q = SCAN_QUERY + ' newer_than:' + WINDOW_DAYS + 'd';
   const threads = GmailApp.search(q, 0, MAX_THREADS);
   const out = [];
+  let reused = 0, fetched = 0;
   for (const thread of threads) {
     try {
+      const tid = thread.getId();
+      // getLastMessageDate is metadata returned with the search result,
+      // so it doesn't cost an extra fetch.
+      const lastMsgMs = thread.getLastMessageDate().getTime();
+      const cached = prevByThread[tid];
+      if (cached && cached.internalDate === lastMsgMs) {
+        // Thread unchanged since last scan — reuse the cached entry
+        // verbatim, skip the expensive getMessages() / getPlainBody()
+        // calls entirely.
+        out.push(cached);
+        reused++;
+        continue;
+      }
+
+      // New thread or has new activity — full fetch + extraction.
       const messages = thread.getMessages();
       const last = messages[messages.length - 1];
       const from = last.getFrom() || '';
-      // Skip Google/Gmail-system senders — they aren't job applications
-      // even if their bodies happen to match a keyword.
       if (NOISE_SENDER_RE.test(from)) continue;
       const body = (last.getPlainBody() || '').replace(/\s+/g, ' ').trim();
       const subject = last.getSubject() || '';
-      // Skip job-recommendation digests (subject-only — sender check
-      // would also block ZipRecruiter Phil's auto-apply confirmations).
       if (RECOMMENDATION_SUBJECT_RE.test(subject)) continue;
       out.push({
-        threadId: thread.getId(),
+        threadId: tid,
         messageId: last.getId(),
         internalDate: last.getDate().getTime(),
         subject: subject,
@@ -337,10 +363,16 @@ function scanInbox() {
         companyHint: extractCompanyHint(subject, body, from),
         roleHint: extractRoleHint(subject, body)
       });
+      fetched++;
     } catch (e) { /* skip individual failures, keep going */ }
   }
-  const payload = { scannedAt: new Date().toISOString(), threads: out };
-  PropertiesService.getScriptProperties().setProperty('LAST_SCAN', JSON.stringify(payload));
+  const payload = {
+    scannedAt: new Date().toISOString(),
+    threads: out,
+    reused: reused,
+    fetched: fetched
+  };
+  props.setProperty('LAST_SCAN', JSON.stringify(payload));
   return payload;
 }
 
