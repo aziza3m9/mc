@@ -1117,9 +1117,37 @@
     font-size: 10px; line-height: 1;
     cursor: pointer; display: none;
   }
+  .sign-pdf-field-dup {
+    position: absolute;
+    top: -10px; right: 12px;
+    width: 18px; height: 18px;
+    background: var(--accent); color: white;
+    border: 1px solid white;
+    border-radius: 50%;
+    font-size: 12px; line-height: 1;
+    cursor: pointer; display: none;
+    padding: 0;
+  }
+  .sign-pdf-field-grip {
+    position: absolute;
+    top: -10px; left: -10px;
+    width: 18px; height: 18px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    font-size: 10px; line-height: 1;
+    cursor: grab; display: none;
+    padding: 0;
+  }
+  .sign-pdf-field-grip:active { cursor: grabbing; }
   .sign-pdf-field-wrap { position: absolute; }
+  .sign-pdf-field-wrap.dragging { opacity: .7; }
   .sign-pdf-field-wrap:hover .sign-pdf-field-remove,
-  .sign-pdf-field-wrap:focus-within .sign-pdf-field-remove { display: block; }
+  .sign-pdf-field-wrap:hover .sign-pdf-field-dup,
+  .sign-pdf-field-wrap:hover .sign-pdf-field-grip,
+  .sign-pdf-field-wrap:focus-within .sign-pdf-field-remove,
+  .sign-pdf-field-wrap:focus-within .sign-pdf-field-dup,
+  .sign-pdf-field-wrap:focus-within .sign-pdf-field-grip { display: block; }
   /* Placed signature overlay (drawn-pad image rendered at click point) */
   .sign-pdf-sig-wrap { position: absolute; }
   .sign-pdf-sig-wrap img {
@@ -1128,8 +1156,11 @@
     border: 1px dashed var(--accent);
     border-radius: 3px;
   }
+  .sign-pdf-sig-wrap.dragging { opacity: .7; }
   .sign-pdf-sig-wrap:hover .sign-pdf-field-remove,
-  .sign-pdf-sig-wrap:focus-within .sign-pdf-field-remove { display: block; }
+  .sign-pdf-sig-wrap:hover .sign-pdf-field-grip,
+  .sign-pdf-sig-wrap:focus-within .sign-pdf-field-remove,
+  .sign-pdf-sig-wrap:focus-within .sign-pdf-field-grip { display: block; }
   /* Sign-mode cursor cue when "Place signature here" is armed */
   .sign-pdf.placing-sig .sign-pdf-page { cursor: copy; }
   .preset-chip.sig-chip.active {
@@ -1887,7 +1918,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-stop-bubble';
+  const BUILD_VERSION = '2026-05-08.sign-dup-drag';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2501,9 +2532,9 @@
       // Coords are in display pixels relative to the wrap.
       wrap.addEventListener('click', (e) => {
         // Only drop a new field/signature when the click hit empty page
-        // background (the wrap or the rendered PDF canvas). Anything else
-        // — an existing field's input, its remove button, the placed
-        // signature overlay — must NOT spawn another field.
+        // background (the page wrap or the rendered PDF canvas). Reject
+        // anything that originated inside an existing field/signature.
+        if (e.target.closest('.sign-pdf-field-wrap, .sign-pdf-sig-wrap')) return;
         if (e.target !== wrap && e.target !== canvas) return;
         const r = wrap.getBoundingClientRect();
         const cx = e.clientX - r.left;
@@ -2518,31 +2549,54 @@
     return pageInfos;
   }
 
-  function placeSignField(pageInfo, displayX, displayY) {
+  function placeSignField(pageInfo, displayX, displayY, opts) {
+    opts = opts || {};
+    const fieldType = opts.type || _signNextType;
+    const label = (opts.label !== undefined) ? opts.label : _signNextLabel;
+    const initialValue = opts.value || '';
+
     const wrap = document.createElement('div');
     wrap.className = 'sign-pdf-field-wrap';
     wrap.style.left = displayX + 'px';
     wrap.style.top  = displayY + 'px';
-    // Defense-in-depth: any click landing inside the field wrap (input,
-    // remove button, picker icon, etc.) must NOT bubble to the page
-    // handler — otherwise typing into a field can spawn another field.
-    wrap.addEventListener('click', (e) => e.stopPropagation());
-    wrap.addEventListener('mousedown', (e) => e.stopPropagation());
+    // Stop ALL pointer events from bubbling to the page handler. Without
+    // this, typing into a field — or just hitting the date picker icon —
+    // would spawn another field.
+    ['click', 'mousedown', 'pointerdown', 'touchstart'].forEach((ev) => {
+      wrap.addEventListener(ev, (e) => e.stopPropagation());
+    });
+
     const input = document.createElement('input');
-    input.type = _signNextType === 'date' ? 'date' : 'text';
+    input.type = fieldType === 'date' ? 'date' : 'text';
     input.className = 'sign-pdf-field';
-    if (_signNextType === 'date') {
-      // Default to today so the picker opens with a sensible value.
-      const t = new Date();
-      const iso = t.getFullYear() + '-' +
-        String(t.getMonth() + 1).padStart(2, '0') + '-' +
-        String(t.getDate()).padStart(2, '0');
+    if (fieldType === 'date') {
+      let iso = initialValue;
+      if (!iso) {
+        const t = new Date();
+        iso = t.getFullYear() + '-' +
+          String(t.getMonth() + 1).padStart(2, '0') + '-' +
+          String(t.getDate()).padStart(2, '0');
+      }
       input.value = iso;
       input.dataset.fieldType = 'date';
     } else {
-      input.placeholder = _signNextLabel ? _signNextLabel : 'Type here…';
-      if (_signNextLabel) input.dataset.label = _signNextLabel;
+      input.placeholder = label || 'Type here…';
+      if (label) input.dataset.label = label;
+      if (initialValue) input.value = initialValue;
     }
+
+    const grip = document.createElement('button');
+    grip.type = 'button';
+    grip.className = 'sign-pdf-field-grip';
+    grip.title = 'Drag to move';
+    grip.textContent = '⋮⋮';
+
+    const dup = document.createElement('button');
+    dup.type = 'button';
+    dup.className = 'sign-pdf-field-dup';
+    dup.title = 'Duplicate this field';
+    dup.textContent = '+';
+
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'sign-pdf-field-remove';
@@ -2553,11 +2607,61 @@
       wrap.remove();
       _signPlacedFields = _signPlacedFields.filter(f => f.wrap !== wrap);
     });
+
+    wrap.appendChild(grip);
     wrap.appendChild(input);
+    wrap.appendChild(dup);
     wrap.appendChild(remove);
     pageInfo.wrap.appendChild(wrap);
     setTimeout(() => input.focus(), 30);
-    _signPlacedFields.push({ wrap, input, pageInfo, displayX, displayY });
+
+    const entry = { wrap, input, pageInfo, displayX, displayY };
+    _signPlacedFields.push(entry);
+
+    dup.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isDate = input.dataset.fieldType === 'date';
+      placeSignField(pageInfo, entry.displayX + 24, entry.displayY + 24, {
+        type: isDate ? 'date' : 'text',
+        label: input.dataset.label || '',
+        value: input.value
+      });
+    });
+
+    makeWrapDraggable(wrap, grip, entry);
+  }
+
+  // Drag a placed field/signature wrap by its grip handle. Updates the
+  // entry's displayX/displayY in place so applySignature stamps it at
+  // the new position.
+  function makeWrapDraggable(wrap, handle, entry) {
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startPX = e.clientX, startPY = e.clientY;
+      const startLeft = parseFloat(wrap.style.left) || 0;
+      const startTop  = parseFloat(wrap.style.top)  || 0;
+      wrap.classList.add('dragging');
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      function move(ev) {
+        const nx = startLeft + (ev.clientX - startPX);
+        const ny = startTop  + (ev.clientY - startPY);
+        wrap.style.left = nx + 'px';
+        wrap.style.top  = ny + 'px';
+        entry.displayX = nx;
+        entry.displayY = ny;
+      }
+      function up(ev) {
+        wrap.classList.remove('dragging');
+        try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      }
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    });
   }
 
   // Place the currently-drawn signature image at the click point on the
@@ -2588,12 +2692,18 @@
     // Anchor at the click point as the top-left of the signature box.
     wrap.style.left = displayX + 'px';
     wrap.style.top  = displayY + 'px';
-    wrap.addEventListener('click', (e) => e.stopPropagation());
-    wrap.addEventListener('mousedown', (e) => e.stopPropagation());
+    ['click', 'mousedown', 'pointerdown', 'touchstart'].forEach((ev) => {
+      wrap.addEventListener(ev, (e) => e.stopPropagation());
+    });
     const img = document.createElement('img');
     img.src = pad.toDataURL('image/png');
     img.style.width  = sigDispW + 'px';
     img.style.height = sigDispH + 'px';
+    const grip = document.createElement('button');
+    grip.type = 'button';
+    grip.className = 'sign-pdf-field-grip';
+    grip.title = 'Drag to move';
+    grip.textContent = '⋮⋮';
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'sign-pdf-field-remove';
@@ -2604,11 +2714,13 @@
       wrap.remove();
       if (_signPlacedSig && _signPlacedSig.wrap === wrap) _signPlacedSig = null;
     });
+    wrap.appendChild(grip);
     wrap.appendChild(img);
     wrap.appendChild(remove);
     pageInfo.wrap.appendChild(wrap);
 
     _signPlacedSig = { wrap, pageInfo, displayX, displayY, sigDispW, sigDispH };
+    makeWrapDraggable(wrap, grip, _signPlacedSig);
     // Disarm placement mode after one placement.
     _signPlaceMode = false;
     const host = document.getElementById('sign-pdf');
