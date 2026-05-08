@@ -1056,8 +1056,45 @@
     flex: 1; min-height: 200px;
     background: #1f2937;
     display: flex; align-items: stretch; justify-content: center;
+    overflow: auto; padding: 12px;
   }
   .sign-pdf iframe { width: 100%; height: 100%; border: 0; background: white; }
+  .sign-pdf.pages { flex-direction: column; align-items: center; gap: 14px; }
+  .sign-pdf-page {
+    position: relative; background: white;
+    box-shadow: 0 6px 18px rgba(0,0,0,.45);
+    cursor: crosshair;
+  }
+  .sign-pdf-field {
+    position: absolute;
+    background: rgba(79,158,255,.14);
+    border: 1.5px dashed var(--accent);
+    color: #06091a;
+    font-size: 11px; padding: 2px 6px;
+    min-width: 110px; max-width: 320px;
+    border-radius: 3px;
+    cursor: text;
+    font-family: 'Helvetica', 'Arial', sans-serif;
+  }
+  .sign-pdf-field:focus {
+    outline: none;
+    border-color: var(--accent-deep);
+    box-shadow: 0 0 0 2px rgba(79,158,255,.35);
+    background: rgba(255,255,255,.92);
+  }
+  .sign-pdf-field-remove {
+    position: absolute;
+    top: -10px; right: -10px;
+    width: 18px; height: 18px;
+    background: var(--red); color: white;
+    border: 1px solid white;
+    border-radius: 50%;
+    font-size: 10px; line-height: 1;
+    cursor: pointer; display: none;
+  }
+  .sign-pdf-field-wrap { position: absolute; }
+  .sign-pdf-field-wrap:hover .sign-pdf-field-remove,
+  .sign-pdf-field-wrap:focus-within .sign-pdf-field-remove { display: block; }
   .sign-pad-wrap {
     border-top: 1px solid var(--border-strong);
     padding: 12px 16px;
@@ -1718,21 +1755,20 @@
     <div class="sign-body">
       <div class="sign-pdf" id="sign-pdf"></div>
       <div class="sign-pad-wrap">
-        <div class="sign-fields">
-          <div class="sign-pad-label">Other party fields (typed onto the PDF before signing)</div>
-          <div class="sign-presets">
-            <span class="sign-presets-lbl">Quick add:</span>
-            <button type="button" class="chip preset-chip" data-sign-field-preset="Full Legal Name">Full Legal Name</button>
-            <button type="button" class="chip preset-chip" data-sign-field-preset="Address">Address</button>
-            <button type="button" class="chip preset-chip" data-sign-field-preset="Country">Country</button>
-            <button type="button" class="chip preset-chip" data-sign-field-preset="Email">Email</button>
-            <button type="button" class="chip preset-chip" data-sign-field-preset="Phone / WhatsApp">Phone / WhatsApp</button>
-            <button type="button" class="chip preset-chip" data-sign-field-preset="">+ Custom</button>
-          </div>
-          <div id="sign-fields-list" class="sign-fields-list"></div>
+        <div class="sign-pad-label">
+          Click anywhere on the document above to drop a text field, then type.
+          <span class="sign-presets-lbl" style="margin-left: 6px;">Pre-label your next click:</span>
+        </div>
+        <div class="sign-presets">
+          <button type="button" class="chip preset-chip" data-sign-field-preset="">Free text</button>
+          <button type="button" class="chip preset-chip" data-sign-field-preset="Full Legal Name">Full Legal Name</button>
+          <button type="button" class="chip preset-chip" data-sign-field-preset="Address">Address</button>
+          <button type="button" class="chip preset-chip" data-sign-field-preset="Country">Country</button>
+          <button type="button" class="chip preset-chip" data-sign-field-preset="Email">Email</button>
+          <button type="button" class="chip preset-chip" data-sign-field-preset="Phone / WhatsApp">Phone / WhatsApp</button>
         </div>
 
-        <div class="sign-pad-label">Draw your signature below</div>
+        <div class="sign-pad-label">Draw your signature below (auto-placed bottom-right of last page)</div>
         <canvas id="sign-pad" class="sign-pad" width="640" height="180"></canvas>
         <div class="sign-pad-actions">
           <input type="text" id="sign-name" placeholder="Typed name (optional, printed below signature)" autocomplete="off" />
@@ -1815,7 +1851,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-06.contract-fields';
+  const BUILD_VERSION = '2026-05-06.click-to-place';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2362,21 +2398,112 @@
     });
   }
 
+  // PDF.js for rendering pages as canvases so the user can click on
+  // them and drop text fields at exact positions (DocuSign-style).
+  async function loadPdfJs() {
+    if (window.pdfjsLib) return window.pdfjsLib;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('pdf.js failed to load — check your network'));
+      document.head.appendChild(s);
+    });
+    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    return window.pdfjsLib;
+  }
+
+  // The "next click" pre-label, set by the preset chips below the PDF.
+  let _signNextLabel = '';
+  // Each placed field is {wrap, input, pageInfo}; collected on Apply.
+  let _signPlacedFields = [];
+
+  async function renderPdfPagesForSigning(bytes, pdfjs) {
+    const host = document.getElementById('sign-pdf');
+    host.innerHTML = '';
+    host.classList.add('pages');
+    const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+    const SCALE = 1.4;
+    const pageInfos = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: SCALE });
+      const wrap = document.createElement('div');
+      wrap.className = 'sign-pdf-page';
+      wrap.style.width = viewport.width + 'px';
+      wrap.style.height = viewport.height + 'px';
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      wrap.appendChild(canvas);
+      host.appendChild(wrap);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      const info = {
+        pageIndex: i - 1,
+        scale: SCALE,
+        pdfWidth:  viewport.width  / SCALE,
+        pdfHeight: viewport.height / SCALE,
+        wrap: wrap
+      };
+      pageInfos.push(info);
+      // Clicking on the page (but not on an existing field) drops a new field.
+      wrap.addEventListener('click', (e) => {
+        if (e.target.closest('.sign-pdf-field-wrap')) return;
+        const r = wrap.getBoundingClientRect();
+        const cx = e.clientX - r.left;
+        const cy = e.clientY - r.top;
+        placeSignField(info, cx, cy);
+      });
+    }
+    return pageInfos;
+  }
+
+  function placeSignField(pageInfo, canvasX, canvasY) {
+    const wrap = document.createElement('div');
+    wrap.className = 'sign-pdf-field-wrap';
+    wrap.style.left = canvasX + 'px';
+    wrap.style.top  = canvasY + 'px';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'sign-pdf-field';
+    input.placeholder = _signNextLabel ? _signNextLabel : 'Type here…';
+    if (_signNextLabel) input.dataset.label = _signNextLabel;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'sign-pdf-field-remove';
+    remove.textContent = '×';
+    remove.title = 'Remove field';
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation();
+      wrap.remove();
+      _signPlacedFields = _signPlacedFields.filter(f => f.wrap !== wrap);
+    });
+    wrap.appendChild(input);
+    wrap.appendChild(remove);
+    pageInfo.wrap.appendChild(wrap);
+    setTimeout(() => input.focus(), 30);
+    _signPlacedFields.push({ wrap, input, pageInfo, canvasX, canvasY });
+  }
+
   async function openSignModal(id, name) {
     const url = (state.gmail.appsScriptUrl || '').trim();
     const secret = (state.gmail.appsScriptSecret || '').trim();
     if (!url || !secret) { setContractStatus('Configure Background Sync first.', 'error'); return; }
     setContractStatus('Opening ' + name + ' for signing…', 'busy');
     try {
-      // Fetch the PDF + load pdf-lib in parallel
-      const [r, PDFLib] = await Promise.all([
+      // Fetch the PDF + load pdf-lib + pdf.js in parallel
+      const [r, PDFLib, pdfjs] = await Promise.all([
         fetch(
           url + (url.indexOf('?') === -1 ? '?' : '&') +
           'action=contracts-download&token=' + encodeURIComponent(secret) +
           '&id=' + encodeURIComponent(id),
           { method: 'GET', mode: 'cors', cache: 'no-store' }
         ),
-        loadPdfLib()
+        loadPdfLib(),
+        loadPdfJs()
       ]);
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
@@ -2385,28 +2512,25 @@
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-      // Render the PDF preview in the sign modal
-      const blob = new Blob([bytes], { type: 'application/pdf' });
-      const blobUrl = URL.createObjectURL(blob);
-      const pdfHost = document.getElementById('sign-pdf');
-      pdfHost.innerHTML = '';
-      const ifr = document.createElement('iframe');
-      ifr.src = blobUrl;
-      ifr.title = name;
-      pdfHost.appendChild(ifr);
+      // Modal must be visible BEFORE rendering so the canvases get
+      // their proper layout box. Show it now, render right after.
+      document.getElementById('contract-sign').hidden = false;
+
+      // Render each PDF page as a canvas the user can click on.
+      const pageInfos = await renderPdfPagesForSigning(bytes, pdfjs);
+      _signPlacedFields = [];
 
       _signCtx = {
         id: id,
         origName: name,
         bytes: bytes,
-        blobUrl: blobUrl,
-        PDFLib: PDFLib
+        PDFLib: PDFLib,
+        pageInfos: pageInfos
       };
-      setSignStatus('Draw a signature, then Apply.', 'ok');
+      setSignStatus('Click anywhere on a page to drop a text field. Draw a signature below, then Apply.', 'ok');
       document.getElementById('sign-title').textContent = 'Sign — ' + name;
       document.getElementById('sign-name').value = '';
       clearSignPad();
-      clearSignFields();
       document.getElementById('contract-sign').hidden = false;
       setContractStatus('Ready to sign.', 'ok');
     } catch (e) {
@@ -2421,7 +2545,11 @@
       try { URL.revokeObjectURL(_signCtx.blobUrl); } catch (_) {}
     }
     _signCtx = null;
-    document.getElementById('sign-pdf').innerHTML = '';
+    _signPlacedFields = [];
+    _signNextLabel = '';
+    document.querySelectorAll('.preset-chip[data-sign-field-preset]').forEach(c => c.classList.remove('active'));
+    const host = document.getElementById('sign-pdf');
+    if (host) { host.innerHTML = ''; host.classList.remove('pages'); }
   }
 
   // ----- Signature pad -----
@@ -2543,21 +2671,21 @@
       const fontBold = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const ink = PDFLib.rgb(0.13, 0.16, 0.22);
 
-      // Draw filled fields stacked vertically above the signature.
-      const fields = collectSignFields();
-      if (fields.length) {
-        let fieldY = y + sigDims.height + 30; // first row above the signature
-        for (const f of fields) {
-          const lbl = f.label || '';
-          const val = f.value || '';
-          const lblText = lbl ? (lbl + ': ') : '';
-          const lblWidth = lblText ? fontBold.widthOfTextAtSize(lblText, 10) : 0;
-          if (lblText) {
-            page.drawText(lblText, { x: 50, y: fieldY, size: 10, font: fontBold, color: ink });
-          }
-          page.drawText(val, { x: 50 + lblWidth, y: fieldY, size: 10, font: font, color: ink });
-          fieldY += 16;
-        }
+      // Stamp click-placed text fields at their exact PDF coordinates.
+      // Canvas (cx, cy) → PDF (x, pageHeight - cy/scale - small offset).
+      // Each pageInfo holds the scale and the pdfHeight for that page.
+      for (const f of _signPlacedFields) {
+        const txt = (f.input.value || '').trim();
+        if (!txt) continue;
+        const info = f.pageInfo;
+        const pageObj = pages[info.pageIndex];
+        if (!pageObj) continue;
+        const fontSize = 11;
+        const pdfX = f.canvasX / info.scale;
+        // Subtract a small offset so the text baseline aligns roughly
+        // with where the user clicked (top of where they expect text).
+        const pdfY = info.pdfHeight - (f.canvasY / info.scale) - fontSize - 1;
+        pageObj.drawText(txt, { x: pdfX, y: pdfY, size: fontSize, font: font, color: ink });
       }
 
       page.drawImage(sigImage, { x, y, width: sigDims.width, height: sigDims.height });
@@ -5421,15 +5549,15 @@
   if (signClear) signClear.addEventListener('click', () => { clearSignPad(); setSignStatus('Cleared.', 'ok'); });
   const signApply = document.getElementById('sign-apply');
   if (signApply) signApply.addEventListener('click', applySignature);
-  // Preset chips → add a row pre-labeled. Empty preset = blank custom row.
+  // Preset chips → set _signNextLabel so the user's NEXT click on the
+  // PDF places a field with that label as the placeholder text. Active
+  // chip is highlighted until they place the field or pick another.
   document.querySelectorAll('[data-sign-field-preset]').forEach(btn => {
-    btn.addEventListener('click', () => addSignFieldRow(btn.dataset.signFieldPreset || ''));
-  });
-  // Remove a field row (delegated from the list)
-  const signFieldsList = document.getElementById('sign-fields-list');
-  if (signFieldsList) signFieldsList.addEventListener('click', (e) => {
-    const rm = e.target.closest('[data-sign-field-remove]');
-    if (rm) rm.closest('.sign-field-row').remove();
+    btn.addEventListener('click', () => {
+      _signNextLabel = btn.dataset.signFieldPreset || '';
+      document.querySelectorAll('.preset-chip[data-sign-field-preset]').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+    });
   });
   const signOverlay = document.getElementById('contract-sign');
   if (signOverlay) signOverlay.addEventListener('click', (e) => { if (e.target === signOverlay) closeSignModal(); });
