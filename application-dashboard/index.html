@@ -1852,7 +1852,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-layout';
+  const BUILD_VERSION = '2026-05-08.sign-fit';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2426,8 +2426,20 @@
     const host = document.getElementById('sign-pdf');
     host.innerHTML = '';
     host.classList.add('pages');
+    // Wait one frame so the modal's layout box is computed before measuring.
+    await new Promise((r) => requestAnimationFrame(() => r()));
     const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-    const SCALE = 1.4;
+    // Fit the first page to the host so the whole page is visible without
+    // scrolling. Scale is shared across all pages (most PDFs are uniform).
+    const firstPage = await pdf.getPage(1);
+    const baseVp = firstPage.getViewport({ scale: 1 });
+    const availW = Math.max(280, (host.clientWidth  || 800) - 28);
+    const availH = Math.max(280, (host.clientHeight || 600) - 28);
+    const fitW = availW / baseVp.width;
+    const fitH = availH / baseVp.height;
+    // Fit so the entire page fits inside the host (no vertical scroll), with
+    // a small extra margin so the page never just barely clips. Clamp 0.5–2x.
+    const SCALE = Math.max(0.5, Math.min(2.0, Math.min(fitW, fitH) * 0.98));
     const pageInfos = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -2561,7 +2573,7 @@
     const resize = () => {
       const r = canvas.getBoundingClientRect();
       canvas.width = Math.max(320, Math.floor(r.width));
-      canvas.height = 180;
+      canvas.height = 110;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.fillStyle = 'white';
