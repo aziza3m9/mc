@@ -1064,6 +1064,13 @@
     position: relative; background: white;
     box-shadow: 0 6px 18px rgba(0,0,0,.45);
     cursor: crosshair;
+    max-width: 100%; max-height: 100%;
+    line-height: 0;
+  }
+  .sign-pdf-page canvas {
+    display: block;
+    max-width: 100%; max-height: calc(96vh - 380px);
+    width: auto; height: auto;
   }
   .sign-pdf-field {
     position: absolute;
@@ -1852,7 +1859,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-fit';
+  const BUILD_VERSION = '2026-05-08.sign-css-fit';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2426,43 +2433,34 @@
     const host = document.getElementById('sign-pdf');
     host.innerHTML = '';
     host.classList.add('pages');
-    // Wait one frame so the modal's layout box is computed before measuring.
-    await new Promise((r) => requestAnimationFrame(() => r()));
     const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-    // Fit the first page to the host so the whole page is visible without
-    // scrolling. Scale is shared across all pages (most PDFs are uniform).
-    const firstPage = await pdf.getPage(1);
-    const baseVp = firstPage.getViewport({ scale: 1 });
-    const availW = Math.max(280, (host.clientWidth  || 800) - 28);
-    const availH = Math.max(280, (host.clientHeight || 600) - 28);
-    const fitW = availW / baseVp.width;
-    const fitH = availH / baseVp.height;
-    // Fit so the entire page fits inside the host (no vertical scroll), with
-    // a small extra margin so the page never just barely clips. Clamp 0.5–2x.
-    const SCALE = Math.max(0.5, Math.min(2.0, Math.min(fitW, fitH) * 0.98));
+    // Render at a fixed scale for sharpness; CSS handles display fitting via
+    // max-width / max-height on the canvas. Click coords use the canvas's
+    // live bounding rect so they map correctly regardless of display size.
+    const RENDER_SCALE = 1.5;
     const pageInfos = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: SCALE });
+      const naturalVp = page.getViewport({ scale: 1 });
+      const renderVp = page.getViewport({ scale: RENDER_SCALE });
       const wrap = document.createElement('div');
       wrap.className = 'sign-pdf-page';
-      wrap.style.width = viewport.width + 'px';
-      wrap.style.height = viewport.height + 'px';
       const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      canvas.width = renderVp.width;
+      canvas.height = renderVp.height;
       wrap.appendChild(canvas);
       host.appendChild(wrap);
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: renderVp }).promise;
       const info = {
         pageIndex: i - 1,
-        scale: SCALE,
-        pdfWidth:  viewport.width  / SCALE,
-        pdfHeight: viewport.height / SCALE,
-        wrap: wrap
+        pdfWidth:  naturalVp.width,
+        pdfHeight: naturalVp.height,
+        wrap: wrap,
+        canvas: canvas
       };
       pageInfos.push(info);
-      // Clicking on the page (but not on an existing field) drops a new field.
+      // Clicking on the page (but not on an existing field) drops a field.
+      // Coords are in display pixels relative to the wrap.
       wrap.addEventListener('click', (e) => {
         if (e.target.closest('.sign-pdf-field-wrap')) return;
         const r = wrap.getBoundingClientRect();
@@ -2474,11 +2472,11 @@
     return pageInfos;
   }
 
-  function placeSignField(pageInfo, canvasX, canvasY) {
+  function placeSignField(pageInfo, displayX, displayY) {
     const wrap = document.createElement('div');
     wrap.className = 'sign-pdf-field-wrap';
-    wrap.style.left = canvasX + 'px';
-    wrap.style.top  = canvasY + 'px';
+    wrap.style.left = displayX + 'px';
+    wrap.style.top  = displayY + 'px';
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'sign-pdf-field';
@@ -2498,7 +2496,7 @@
     wrap.appendChild(remove);
     pageInfo.wrap.appendChild(wrap);
     setTimeout(() => input.focus(), 30);
-    _signPlacedFields.push({ wrap, input, pageInfo, canvasX, canvasY });
+    _signPlacedFields.push({ wrap, input, pageInfo, displayX, displayY });
   }
 
   async function openSignModal(id, name) {
@@ -2685,8 +2683,8 @@
       const ink = PDFLib.rgb(0.13, 0.16, 0.22);
 
       // Stamp click-placed text fields at their exact PDF coordinates.
-      // Canvas (cx, cy) → PDF (x, pageHeight - cy/scale - small offset).
-      // Each pageInfo holds the scale and the pdfHeight for that page.
+      // Display (cx, cy) → PDF, using the wrap's live bounding rect so the
+      // mapping works regardless of how CSS scaled the canvas down to fit.
       for (const f of _signPlacedFields) {
         const txt = (f.input.value || '').trim();
         if (!txt) continue;
@@ -2694,10 +2692,13 @@
         const pageObj = pages[info.pageIndex];
         if (!pageObj) continue;
         const fontSize = 11;
-        const pdfX = f.canvasX / info.scale;
-        // Subtract a small offset so the text baseline aligns roughly
-        // with where the user clicked (top of where they expect text).
-        const pdfY = info.pdfHeight - (f.canvasY / info.scale) - fontSize - 1;
+        const r = info.wrap.getBoundingClientRect();
+        const dispW = r.width || info.pdfWidth;
+        const dispH = r.height || info.pdfHeight;
+        const pdfX = (f.displayX / dispW) * info.pdfWidth;
+        // PDF y-axis points up; subtract from page height. Small offset
+        // so the text baseline lands where the user clicked (top of text).
+        const pdfY = info.pdfHeight - (f.displayY / dispH) * info.pdfHeight - fontSize - 1;
         pageObj.drawText(txt, { x: pdfX, y: pdfY, size: fontSize, font: font, color: ink });
       }
 
