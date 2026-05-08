@@ -411,6 +411,12 @@ function doGet(e) {
     const blob = readSharedState();
     return _json({ state: blob.state, savedAt: blob.savedAt });
   }
+  if (action === 'sops-list') {
+    return _json(listSops());
+  }
+  if (action === 'sops-download') {
+    return _json(downloadSop(params.id));
+  }
   // Default: results
   const cached = props.getProperty('LAST_SCAN');
   if (cached) return _json(JSON.parse(cached));
@@ -432,6 +438,12 @@ function doPost(e) {
   if (params.action === 'state-put') {
     if (!params.state) return _json({ error: 'missing state' });
     return _json(writeSharedState(params.state));
+  }
+  if (params.action === 'sops-upload') {
+    return _json(uploadSop(params.name, params.mimeType, params.base64));
+  }
+  if (params.action === 'sops-delete') {
+    return _json(deleteSop(params.id));
   }
   return _json({ error: 'unknown action: ' + (params.action || '<none>') });
 }
@@ -473,6 +485,107 @@ function writeSharedState(stateJson) {
     return { ok: true, savedAt: new Date().toISOString(), bytes: stateJson.length };
   } catch (e) {
     return { error: 'invalid json: ' + e.message };
+  }
+}
+
+// ---------- SOP storage (Drive folder) ---------------------------------
+// Files are stored in a dedicated Drive folder owned by the script
+// owner. Anyone with the SECRET can list / upload / download / delete
+// via Apps Script — that's the access boundary, same as state.
+
+const SOP_FOLDER_ID_KEY = 'SOP_FOLDER_ID';
+const SOP_FOLDER_NAME = 'apex-dashboard-sops';
+const SOP_MAX_BYTES = 30 * 1024 * 1024; // 30 MB safety limit
+
+function getSopFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(SOP_FOLDER_ID_KEY);
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (_) { /* folder gone */ }
+  }
+  const folder = DriveApp.createFolder(SOP_FOLDER_NAME);
+  props.setProperty(SOP_FOLDER_ID_KEY, folder.getId());
+  return folder;
+}
+
+function _fileInSopFolder(file) {
+  const folder = getSopFolder_();
+  const parents = file.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === folder.getId()) return true;
+  }
+  return false;
+}
+
+function listSops() {
+  try {
+    const folder = getSopFolder_();
+    const it = folder.getFiles();
+    const out = [];
+    while (it.hasNext()) {
+      const f = it.next();
+      out.push({
+        id:       f.getId(),
+        name:     f.getName(),
+        size:     f.getSize(),
+        mimeType: f.getMimeType(),
+        created:  f.getDateCreated().toISOString(),
+        updated:  f.getLastUpdated().toISOString()
+      });
+    }
+    out.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+    return { files: out, folderUrl: folder.getUrl() };
+  } catch (e) {
+    return { error: 'list failed: ' + e.message };
+  }
+}
+
+function uploadSop(name, mimeType, base64) {
+  if (!name || !base64) return { error: 'missing name or base64' };
+  try {
+    const bytes = Utilities.base64Decode(base64);
+    if (bytes.length > SOP_MAX_BYTES) {
+      return { error: 'file too large (>' + Math.round(SOP_MAX_BYTES / 1024 / 1024) + 'MB)' };
+    }
+    const blob = Utilities.newBlob(bytes, mimeType || 'application/octet-stream', name);
+    const file = getSopFolder_().createFile(blob);
+    return {
+      ok: true,
+      id:   file.getId(),
+      name: file.getName(),
+      size: file.getSize(),
+      mimeType: file.getMimeType(),
+      updated:  file.getLastUpdated().toISOString()
+    };
+  } catch (e) {
+    return { error: 'upload failed: ' + e.message };
+  }
+}
+
+function downloadSop(id) {
+  if (!id) return { error: 'missing id' };
+  try {
+    const file = DriveApp.getFileById(id);
+    if (!_fileInSopFolder(file)) return { error: 'file not in SOP folder' };
+    return {
+      name:     file.getName(),
+      mimeType: file.getMimeType(),
+      base64:   Utilities.base64Encode(file.getBlob().getBytes())
+    };
+  } catch (e) {
+    return { error: 'download failed: ' + e.message };
+  }
+}
+
+function deleteSop(id) {
+  if (!id) return { error: 'missing id' };
+  try {
+    const file = DriveApp.getFileById(id);
+    if (!_fileInSopFolder(file)) return { error: 'file not in SOP folder' };
+    file.setTrashed(true);
+    return { ok: true };
+  } catch (e) {
+    return { error: 'delete failed: ' + e.message };
   }
 }
 
