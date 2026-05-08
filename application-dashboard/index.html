@@ -1885,19 +1885,54 @@
       </header>
 
       <section class="panel" id="applicants-setup" hidden>
-        <h2>Connect Upwork → Zapier/Make → this dashboard</h2>
+        <h2>Connect Upwork → automation → this dashboard</h2>
+        <p style="font-size:13px; color: var(--muted); margin: 4px 0 12px;">
+          Pick the path that matches the tool you're using.
+          <b>Make.com does NOT have a "New Job Applicant" trigger for Upwork</b>
+          — only Zapier does. On Make, you bridge through Upwork's
+          notification emails (or a webhook from another service).
+        </p>
+        <h3 style="margin-top: 0;">Path A · Zapier (easiest)</h3>
         <ol class="setup-steps">
-          <li>In Zapier (or Make/n8n), create a Zap with trigger <b>Upwork → New Job Applicant</b>.</li>
-          <li>For the action, pick <b>Webhooks → POST</b>.</li>
-          <li>Set the URL to your webhook below and method to <b>POST</b>, data type <b>Form</b>.</li>
-          <li>Map these fields from the Upwork trigger to the form body:
-            <code>token</code>, <code>action=applicants-add</code>,
+          <li>Trigger: <b>Upwork → New Job Applicant</b>.</li>
+          <li>Action: <b>Webhooks by Zapier → POST</b>.</li>
+          <li>URL: paste the webhook below. Method <b>POST</b>, payload type <b>Form</b>.</li>
+          <li>Form fields: <code>token</code>, <code>action=applicants-add</code>,
             <code>name</code>, <code>jobTitle</code>, <code>rate</code>,
             <code>coverLetter</code>, <code>profileUrl</code>,
-            <code>appliedAt</code> (ISO), <code>upworkId</code> (dedup key).
-          </li>
-          <li>Turn the Zap on. New applicants will populate this view.</li>
+            <code>appliedAt</code> (ISO), <code>upworkId</code> (dedup key).</li>
+          <li>Turn the Zap on.</li>
         </ol>
+        <h3>Path B · Make.com (no "New Applicant" trigger — use Gmail)</h3>
+        <ol class="setup-steps">
+          <li>Trigger: <b>Gmail → Watch Emails</b> with filter
+            <code>from:no-reply@upwork.com subject:(applied OR applicant OR proposal)</code>.</li>
+          <li>Add a <b>Text parser → Match pattern</b> step on the email body to
+            pull out the applicant name, role, and rate
+            (Upwork emails are pretty regular — sample patterns:
+            <code>([A-Z][a-z]+\s[A-Z][a-z]+) applied</code>,
+            <code>for "(.+?)"</code>,
+            <code>\$([0-9.]+)\/hr</code>).</li>
+          <li>Add an <b>HTTP → Make a request</b> module:
+            URL = the webhook below, Method = <b>POST</b>,
+            Body type = <b>Application/x-www-form-urlencoded</b>,
+            Fields = <code>token</code>, <code>action=applicants-add</code>,
+            plus the parser outputs as <code>name</code>, <code>jobTitle</code>,
+            <code>rate</code>, <code>coverLetter</code>, <code>profileUrl</code>
+            (the email's "View applicant" link), <code>upworkId</code>
+            (the URL's id segment, used for dedup).</li>
+          <li>Turn the scenario on.</li>
+        </ol>
+        <h3>Path C · Quick test (any tool)</h3>
+        <p style="font-size:12px; color: var(--muted); margin: 0 0 8px;">
+          To verify the dashboard side without setting up a Zap, run
+          this from a terminal once your URL is configured:
+        </p>
+        <pre style="background: var(--panel-2, var(--panel)); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 11px; overflow-x: auto; margin: 0;"><code id="applicants-curl-sample">curl -X POST "&lt;your webhook URL&gt;" \
+  -d "name=Jane Doe" -d "jobTitle=Senior Developer" \
+  -d "rate=$50/hr" -d "coverLetter=Test applicant" \
+  -d "profileUrl=https://upwork.com/freelancers/~test" \
+  -d "upworkId=test-123"</code></pre>
         <div class="setup-link" style="margin-top: 10px;">
           <span class="setup-link-text" id="applicants-webhook-url">Configure Background Sync URL + Secret first (Gmail Sync → Background Sync).</span>
           <button class="btn-ghost btn-sm" id="applicants-webhook-copy">Copy</button>
@@ -2020,7 +2055,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.applicants-mvp';
+  const BUILD_VERSION = '2026-05-08.applicants-make-path';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2379,15 +2414,24 @@
   }
   function renderApplicantsWebhookUrl() {
     const el = document.getElementById('applicants-webhook-url');
-    if (!el) return;
+    const curl = document.getElementById('applicants-curl-sample');
     const url = (state.gmail.appsScriptUrl || '').trim();
     const secret = (state.gmail.appsScriptSecret || '').trim();
     if (!url || !secret) {
-      el.textContent = 'Configure Background Sync URL + Secret first (Gmail Sync → Background Sync).';
+      if (el) el.textContent = 'Configure Background Sync URL + Secret first (Gmail Sync → Background Sync).';
       return;
     }
-    el.textContent = url + (url.indexOf('?') === -1 ? '?' : '&') +
+    const webhook = url + (url.indexOf('?') === -1 ? '?' : '&') +
       'action=applicants-add&token=' + encodeURIComponent(secret);
+    if (el) el.textContent = webhook;
+    if (curl) {
+      curl.textContent =
+        'curl -X POST "' + webhook + '" \\\n' +
+        '  -d "name=Jane Doe" -d "jobTitle=Senior Developer" \\\n' +
+        '  -d "rate=$50/hr" -d "coverLetter=Test applicant" \\\n' +
+        '  -d "profileUrl=https://upwork.com/freelancers/~test" \\\n' +
+        '  -d "upworkId=test-123"';
+    }
   }
   async function loadApplicants(opts) {
     opts = opts || {};
