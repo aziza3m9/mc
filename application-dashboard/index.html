@@ -1797,7 +1797,7 @@
       <div class="sign-pdf" id="sign-pdf"></div>
       <div class="sign-pad-wrap">
         <div class="sign-presets">
-          <button type="button" class="chip preset-chip" data-sign-field-preset="">Free text</button>
+          <button type="button" class="chip preset-chip" data-sign-field-preset="Date" data-sign-field-type="date">Date</button>
           <button type="button" class="chip preset-chip" data-sign-field-preset="Full Legal Name">Full Legal Name</button>
           <button type="button" class="chip preset-chip" data-sign-field-preset="Address">Address</button>
           <button type="button" class="chip preset-chip" data-sign-field-preset="Country">Country</button>
@@ -1887,7 +1887,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-click-target-strict';
+  const BUILD_VERSION = '2026-05-08.sign-date-chip';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2454,6 +2454,9 @@
 
   // The "next click" pre-label, set by the preset chips below the PDF.
   let _signNextLabel = '';
+  // 'text' | 'date'. The Date chip renders a native <input type="date">
+  // (calendar picker); other chips drop a free-text input.
+  let _signNextType = 'text';
   // Each placed field is {wrap, input, pageInfo}; collected on Apply.
   let _signPlacedFields = [];
   // When true, the next click on a PDF page drops the drawn signature
@@ -2521,10 +2524,20 @@
     wrap.style.left = displayX + 'px';
     wrap.style.top  = displayY + 'px';
     const input = document.createElement('input');
-    input.type = 'text';
+    input.type = _signNextType === 'date' ? 'date' : 'text';
     input.className = 'sign-pdf-field';
-    input.placeholder = _signNextLabel ? _signNextLabel : 'Type here…';
-    if (_signNextLabel) input.dataset.label = _signNextLabel;
+    if (_signNextType === 'date') {
+      // Default to today so the picker opens with a sensible value.
+      const t = new Date();
+      const iso = t.getFullYear() + '-' +
+        String(t.getMonth() + 1).padStart(2, '0') + '-' +
+        String(t.getDate()).padStart(2, '0');
+      input.value = iso;
+      input.dataset.fieldType = 'date';
+    } else {
+      input.placeholder = _signNextLabel ? _signNextLabel : 'Type here…';
+      if (_signNextLabel) input.dataset.label = _signNextLabel;
+    }
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'sign-pdf-field-remove';
@@ -2669,6 +2682,7 @@
     _signPlacedSig = null;
     _signPlaceMode = false;
     _signNextLabel = '';
+    _signNextType = 'text';
     document.querySelectorAll('.preset-chip[data-sign-field-preset]').forEach(c => c.classList.remove('active'));
     const sigChip = document.getElementById('sign-place-sig');
     if (sigChip) sigChip.classList.remove('active');
@@ -2819,8 +2833,13 @@
       // Display (cx, cy) → PDF, using the wrap's live bounding rect so the
       // mapping works regardless of how CSS scaled the canvas down to fit.
       for (const f of _signPlacedFields) {
-        const txt = (f.input.value || '').trim();
+        let txt = (f.input.value || '').trim();
         if (!txt) continue;
+        // Date inputs return YYYY-MM-DD; stamp as MM/DD/YYYY.
+        if (f.input.dataset.fieldType === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(txt)) {
+          const parts = txt.split('-');
+          txt = parts[1] + '/' + parts[2] + '/' + parts[0];
+        }
         const info = f.pageInfo;
         const pageObj = pages[info.pageIndex];
         if (!pageObj) continue;
@@ -5717,6 +5736,7 @@
   document.querySelectorAll('[data-sign-field-preset]').forEach(btn => {
     btn.addEventListener('click', () => {
       _signNextLabel = btn.dataset.signFieldPreset || '';
+      _signNextType = btn.dataset.signFieldType || 'text';
       document.querySelectorAll('.preset-chip[data-sign-field-preset]').forEach(c => c.classList.remove('active'));
       btn.classList.add('active');
       // Picking a text-field preset disarms signature-placement mode.
