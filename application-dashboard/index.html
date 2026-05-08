@@ -1903,10 +1903,11 @@
             <code>appliedAt</code> (ISO), <code>upworkId</code> (dedup key).</li>
           <li>Turn the Zap on.</li>
         </ol>
-        <h3>Path B · Make.com (no "New Applicant" trigger — use Gmail)</h3>
+        <h3>Path B · Make.com (no "New Applicant" trigger — use email)</h3>
         <ol class="setup-steps">
-          <li>Trigger: <b>Gmail → Watch Emails</b> with filter
-            <code>from:no-reply@upwork.com subject:(applied OR applicant OR proposal)</code>.</li>
+          <li>Trigger: <b>Gmail → Watch Emails</b> <i>or</i> <b>Microsoft 365 Email → Watch Emails</b> (Outlook), filtered to
+            <code>from:no-reply@upwork.com</code> with subject containing
+            <code>applied</code> / <code>applicant</code> / <code>proposal</code>.</li>
           <li>Add a <b>Text parser → Match pattern</b> step on the email body to
             pull out the applicant name, role, and rate
             (Upwork emails are pretty regular — sample patterns:
@@ -1921,7 +1922,7 @@
             <code>rate</code>, <code>coverLetter</code>, <code>profileUrl</code>
             (the email's "View applicant" link), <code>upworkId</code>
             (the URL's id segment, used for dedup).</li>
-          <li>Turn the scenario on.</li>
+          <li>Schedule the scenario every 15 min and turn it on.</li>
         </ol>
         <h3>Path C · Quick test (any tool)</h3>
         <p style="font-size:12px; color: var(--muted); margin: 0 0 8px;">
@@ -2055,7 +2056,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.applicants-make-path';
+  const BUILD_VERSION = '2026-05-08.applicants-outlook';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
