@@ -1871,7 +1871,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-bytes-copy';
+  const BUILD_VERSION = '2026-05-08.sign-diag';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2688,7 +2688,21 @@
     setSignStatus('Embedding signature into PDF…', 'busy');
     try {
       const PDFLib = _signCtx.PDFLib;
-      const pdfDoc = await PDFLib.PDFDocument.load(_signCtx.bytes);
+      // Diagnostics: log byte length + first 8 bytes so we can tell the
+      // difference between a detached buffer (length 0), a non-PDF file
+      // (no %PDF- magic), and a valid PDF that pdf-lib still rejects.
+      const bytes = _signCtx.bytes;
+      const head = Array.from(bytes.slice(0, 8))
+        .map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      console.log('[sign] bytes.length =', bytes.length, 'head =', head,
+        'asAscii =', String.fromCharCode.apply(null, bytes.slice(0, 8)));
+      if (bytes.length === 0) {
+        throw new Error('PDF buffer is empty (likely transferred to pdf.js worker). Reload the page and try again.');
+      }
+      if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
+        throw new Error('File is not a PDF (header bytes ' + head + '). Re-upload the contract as a PDF.');
+      }
+      const pdfDoc = await PDFLib.PDFDocument.load(bytes);
       const pngBytes = await fetch(canvas.toDataURL('image/png')).then(r => r.arrayBuffer());
       const sigImage = await pdfDoc.embedPng(pngBytes);
 
