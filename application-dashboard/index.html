@@ -1871,7 +1871,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-tighter-pad';
+  const BUILD_VERSION = '2026-05-08.sign-bytes-copy';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2540,7 +2540,12 @@
       document.getElementById('contract-sign').hidden = false;
 
       // Render each PDF page as a canvas the user can click on.
-      const pageInfos = await renderPdfPagesForSigning(bytes, pdfjs);
+      // pdf.js's getDocument({ data }) can transfer the underlying
+      // ArrayBuffer to its worker, which detaches our Uint8Array.
+      // pdf-lib later sees 0 bytes and throws "No PDF header found".
+      // Hand pdf.js a copy so the original survives for applySignature.
+      const pdfjsBytes = new Uint8Array(bytes);
+      const pageInfos = await renderPdfPagesForSigning(pdfjsBytes, pdfjs);
       _signPlacedFields = [];
       // Force the scroll viewport back to the top of page 1 — without this,
       // browsers can leave it scrolled mid-document (e.g. from auto-focus
