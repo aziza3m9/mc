@@ -1120,6 +1120,21 @@
   .sign-pdf-field-wrap { position: absolute; }
   .sign-pdf-field-wrap:hover .sign-pdf-field-remove,
   .sign-pdf-field-wrap:focus-within .sign-pdf-field-remove { display: block; }
+  /* Placed signature overlay (drawn-pad image rendered at click point) */
+  .sign-pdf-sig-wrap { position: absolute; }
+  .sign-pdf-sig-wrap img {
+    display: block; pointer-events: none;
+    background: rgba(255,255,255,.85);
+    border: 1px dashed var(--accent);
+    border-radius: 3px;
+  }
+  .sign-pdf-sig-wrap:hover .sign-pdf-field-remove,
+  .sign-pdf-sig-wrap:focus-within .sign-pdf-field-remove { display: block; }
+  /* Sign-mode cursor cue when "Place signature here" is armed */
+  .sign-pdf.placing-sig .sign-pdf-page { cursor: copy; }
+  .preset-chip.sig-chip.active {
+    background: var(--accent); color: #06091a; border-color: var(--accent-deep);
+  }
   .sign-pad-wrap {
     border-top: 1px solid var(--border-strong);
     padding: 10px 14px;
@@ -1788,6 +1803,7 @@
           <button type="button" class="chip preset-chip" data-sign-field-preset="Country">Country</button>
           <button type="button" class="chip preset-chip" data-sign-field-preset="Email">Email</button>
           <button type="button" class="chip preset-chip" data-sign-field-preset="Phone / WhatsApp">Phone / WhatsApp</button>
+          <button type="button" class="chip preset-chip sig-chip" id="sign-place-sig">Place signature here</button>
         </div>
         <canvas id="sign-pad" class="sign-pad" width="640" height="80"></canvas>
         <div class="sign-pad-actions">
@@ -1871,7 +1887,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-trim-prefix';
+  const BUILD_VERSION = '2026-05-08.sign-click-place';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2440,6 +2456,12 @@
   let _signNextLabel = '';
   // Each placed field is {wrap, input, pageInfo}; collected on Apply.
   let _signPlacedFields = [];
+  // When true, the next click on a PDF page drops the drawn signature
+  // image at that point instead of a text field. Toggled by the "Place
+  // signature here" chip.
+  let _signPlaceMode = false;
+  // Single placed signature: {wrap, pageInfo, displayX, displayY, dispW}.
+  let _signPlacedSig = null;
 
   async function renderPdfPagesForSigning(bytes, pdfjs) {
     const host = document.getElementById('sign-pdf');
@@ -2471,14 +2493,20 @@
         canvas: canvas
       };
       pageInfos.push(info);
-      // Clicking on the page (but not on an existing field) drops a field.
+      // Clicking on the page drops a field (default) or the drawn
+      // signature (when "Place signature here" is armed).
       // Coords are in display pixels relative to the wrap.
       wrap.addEventListener('click', (e) => {
         if (e.target.closest('.sign-pdf-field-wrap')) return;
+        if (e.target.closest('.sign-pdf-sig-wrap')) return;
         const r = wrap.getBoundingClientRect();
         const cx = e.clientX - r.left;
         const cy = e.clientY - r.top;
-        placeSignField(info, cx, cy);
+        if (_signPlaceMode) {
+          placeSignSignature(info, cx, cy);
+        } else {
+          placeSignField(info, cx, cy);
+        }
       });
     }
     return pageInfos;
@@ -2509,6 +2537,62 @@
     pageInfo.wrap.appendChild(wrap);
     setTimeout(() => input.focus(), 30);
     _signPlacedFields.push({ wrap, input, pageInfo, displayX, displayY });
+  }
+
+  // Place the currently-drawn signature image at the click point on the
+  // PDF page. Only one placement is allowed; clicking again replaces it.
+  // Width defaults to 25% of the page's display width (~ a normal sig
+  // line); the user adjusts position by clicking again.
+  function placeSignSignature(pageInfo, displayX, displayY) {
+    const pad = document.getElementById('sign-pad');
+    if (!pad || !pad._hasDrawing || !pad._hasDrawing()) {
+      setSignStatus('Draw your signature in the pad below first, then click the contract.', 'error');
+      _signPlaceMode = false;
+      const host = document.getElementById('sign-pdf');
+      if (host) host.classList.remove('placing-sig');
+      const chip = document.getElementById('sign-place-sig');
+      if (chip) chip.classList.remove('active');
+      return;
+    }
+    if (_signPlacedSig && _signPlacedSig.wrap) {
+      try { _signPlacedSig.wrap.remove(); } catch (_) {}
+    }
+    const r = pageInfo.wrap.getBoundingClientRect();
+    const dispW = r.width || pageInfo.pdfWidth;
+    const sigDispW = Math.max(80, dispW * 0.25);
+    const sigDispH = sigDispW * (pad.height / pad.width);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'sign-pdf-sig-wrap';
+    // Anchor at the click point as the top-left of the signature box.
+    wrap.style.left = displayX + 'px';
+    wrap.style.top  = displayY + 'px';
+    const img = document.createElement('img');
+    img.src = pad.toDataURL('image/png');
+    img.style.width  = sigDispW + 'px';
+    img.style.height = sigDispH + 'px';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'sign-pdf-field-remove';
+    remove.textContent = '×';
+    remove.title = 'Remove signature';
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation();
+      wrap.remove();
+      if (_signPlacedSig && _signPlacedSig.wrap === wrap) _signPlacedSig = null;
+    });
+    wrap.appendChild(img);
+    wrap.appendChild(remove);
+    pageInfo.wrap.appendChild(wrap);
+
+    _signPlacedSig = { wrap, pageInfo, displayX, displayY, sigDispW, sigDispH };
+    // Disarm placement mode after one placement.
+    _signPlaceMode = false;
+    const host = document.getElementById('sign-pdf');
+    if (host) host.classList.remove('placing-sig');
+    const chip = document.getElementById('sign-place-sig');
+    if (chip) chip.classList.remove('active');
+    setSignStatus('Signature placed. Click "Apply & save signed copy" when ready.', 'ok');
   }
 
   async function openSignModal(id, name) {
@@ -2579,10 +2663,14 @@
     }
     _signCtx = null;
     _signPlacedFields = [];
+    _signPlacedSig = null;
+    _signPlaceMode = false;
     _signNextLabel = '';
     document.querySelectorAll('.preset-chip[data-sign-field-preset]').forEach(c => c.classList.remove('active'));
+    const sigChip = document.getElementById('sign-place-sig');
+    if (sigChip) sigChip.classList.remove('active');
     const host = document.getElementById('sign-pdf');
-    if (host) { host.innerHTML = ''; host.classList.remove('pages'); }
+    if (host) { host.innerHTML = ''; host.classList.remove('pages', 'placing-sig'); }
   }
 
   // ----- Signature pad -----
@@ -2714,20 +2802,14 @@
         console.warn('[sign] %PDF- magic found at offset', magicAt, '— trimming prefix');
         bytes = bytes.slice(magicAt);
       }
+      if (!_signPlacedSig) {
+        throw new Error('Click "Place signature here", then click on the contract where the signature line is.');
+      }
       const pdfDoc = await PDFLib.PDFDocument.load(bytes);
       const pngBytes = await fetch(canvas.toDataURL('image/png')).then(r => r.arrayBuffer());
       const sigImage = await pdfDoc.embedPng(pngBytes);
-
-      // Place on the LAST page, bottom-right area (~35% width, 4cm from bottom)
       const pages = pdfDoc.getPages();
-      const page = pages[pages.length - 1];
-      const { width, height } = page.getSize();
-      const sigWidth = width * 0.35;
-      const sigDims = sigImage.scale(sigWidth / sigImage.width);
-      const x = width - sigDims.width - 40;
-      const y = 90;
       const font = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
-      const fontBold = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const ink = PDFLib.rgb(0.13, 0.16, 0.22);
 
       // Stamp click-placed text fields at their exact PDF coordinates.
@@ -2750,13 +2832,28 @@
         pageObj.drawText(txt, { x: pdfX, y: pdfY, size: fontSize, font: font, color: ink });
       }
 
-      page.drawImage(sigImage, { x, y, width: sigDims.width, height: sigDims.height });
-      // Optional typed name beneath signature
+      // Stamp the signature image at the user's click point. Convert
+      // display coords → PDF coords using the live bounding rect of the
+      // page wrap so the placement survives any CSS resize.
+      const sig = _signPlacedSig;
+      const sigPage = pages[sig.pageInfo.pageIndex];
+      const sigRect = sig.pageInfo.wrap.getBoundingClientRect();
+      const sigDispW = sigRect.width || sig.pageInfo.pdfWidth;
+      const sigDispH = sigRect.height || sig.pageInfo.pdfHeight;
+      const xToPdf = sig.pageInfo.pdfWidth / sigDispW;
+      const yToPdf = sig.pageInfo.pdfHeight / sigDispH;
+      const pdfSigW = sig.sigDispW * xToPdf;
+      const pdfSigH = sig.sigDispH * yToPdf;
+      const sigPdfX = sig.displayX * xToPdf;
+      const sigPdfY = sig.pageInfo.pdfHeight - sig.displayY * yToPdf - pdfSigH;
+      sigPage.drawImage(sigImage, { x: sigPdfX, y: sigPdfY, width: pdfSigW, height: pdfSigH });
+
+      // Optional typed name + date beneath the signature.
       const typedName = (document.getElementById('sign-name').value || '').trim();
       const dateStr = new Date().toLocaleDateString();
-      page.drawText(
+      sigPage.drawText(
         (typedName ? typedName + '  ·  ' : '') + 'Signed ' + dateStr,
-        { x: x, y: y - 14, size: 9, font: font, color: ink }
+        { x: sigPdfX, y: sigPdfY - 12, size: 9, font: font, color: ink }
       );
 
       const signedBytes = await pdfDoc.save();
@@ -5619,8 +5716,32 @@
       _signNextLabel = btn.dataset.signFieldPreset || '';
       document.querySelectorAll('.preset-chip[data-sign-field-preset]').forEach(c => c.classList.remove('active'));
       btn.classList.add('active');
+      // Picking a text-field preset disarms signature-placement mode.
+      _signPlaceMode = false;
+      const sigChip = document.getElementById('sign-place-sig');
+      if (sigChip) sigChip.classList.remove('active');
+      const host = document.getElementById('sign-pdf');
+      if (host) host.classList.remove('placing-sig');
     });
   });
+  // "Place signature here" chip: arms the next click on the PDF to drop
+  // the drawn signature image at that point.
+  const sigChipBtn = document.getElementById('sign-place-sig');
+  if (sigChipBtn) {
+    sigChipBtn.addEventListener('click', () => {
+      const pad = document.getElementById('sign-pad');
+      if (!pad || !pad._hasDrawing || !pad._hasDrawing()) {
+        setSignStatus('Draw your signature in the pad below first, then click "Place signature here".', 'error');
+        return;
+      }
+      _signPlaceMode = true;
+      document.querySelectorAll('.preset-chip[data-sign-field-preset]').forEach(c => c.classList.remove('active'));
+      sigChipBtn.classList.add('active');
+      const host = document.getElementById('sign-pdf');
+      if (host) host.classList.add('placing-sig');
+      setSignStatus('Click on the contract where the signature line is.', 'ok');
+    });
+  }
   const signOverlay = document.getElementById('contract-sign');
   if (signOverlay) signOverlay.addEventListener('click', (e) => { if (e.target === signOverlay) closeSignModal(); });
   document.addEventListener('keydown', (e) => {
