@@ -955,6 +955,41 @@
     letter-spacing: .06em; text-transform: uppercase;
     vertical-align: middle;
   }
+  /* SOPs view */
+  .sop-list { display: flex; flex-direction: column; gap: 8px; }
+  .sop-row {
+    display: grid; grid-template-columns: auto 1fr auto auto; gap: 12px 14px;
+    align-items: center;
+    padding: 10px 14px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border); border-radius: 8px;
+    transition: border-color .15s ease, transform .12s ease;
+  }
+  .sop-row:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .sop-row .sop-icon {
+    width: 32px; height: 32px; border-radius: 6px;
+    background: var(--panel); border: 1px solid var(--border);
+    display: grid; place-items: center; font-weight: 800;
+    color: var(--accent); font-size: 11px; letter-spacing: .04em;
+  }
+  .sop-row .sop-name { font-size: 13px; font-weight: 600; color: var(--text); word-break: break-word; }
+  .sop-row .sop-meta { font-size: 11px; color: var(--muted); margin-top: 2px; letter-spacing: .04em; }
+  .sop-row .sop-actions { display: flex; gap: 6px; }
+  .sop-drop {
+    margin-top: 14px; padding: 28px;
+    border: 1px dashed var(--border-strong); border-radius: 10px;
+    text-align: center; color: var(--muted); font-size: 13px;
+    background: rgba(79,158,255,.03);
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .sop-drop.drag {
+    background: rgba(79,158,255,.10);
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .sop-drop b { color: var(--accent); }
+  .sop-drop-sub { color: var(--muted); font-size: 11px; margin-top: 6px; }
+
   .js-pager {
     display: flex; align-items: center; justify-content: center; gap: 12px;
     margin-top: 14px; font-size: 12px; color: var(--muted);
@@ -1064,6 +1099,10 @@
     <a class="nav-link" data-view="jobsearch" href="#jobsearch">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <span>Job Search</span>
+    </a>
+    <a class="nav-link" data-view="sops" href="#sops">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span>SOPs</span>
     </a>
   </nav>
 
@@ -1495,6 +1534,32 @@
       </section>
     </section>
 
+    <!-- VIEW: SOPs -->
+    <section class="view" id="view-sops">
+      <header class="app-head">
+        <div>
+          <h1>SOPs</h1>
+          <div class="subtitle">Standard operating procedures, training docs — uploaded once, available to the whole team via Apps Script.</div>
+        </div>
+        <button class="btn-primary" id="sop-upload-btn">+ Upload</button>
+        <input type="file" id="sop-file-input" hidden multiple />
+      </header>
+
+      <section class="panel">
+        <h2>Files <span class="count" id="sop-count">—</span></h2>
+        <div id="sop-status" class="sync-status">Background Sync URL + Secret are required (Gmail Sync → Background Sync). Then click Refresh.</div>
+        <div class="sync-actions" style="margin-top: 10px;">
+          <button class="btn-ghost btn-sm" id="sop-refresh-btn">Refresh list</button>
+          <a class="btn-ghost btn-sm" id="sop-folder-link" target="_blank" rel="noopener" hidden>Open Drive folder ↗</a>
+        </div>
+        <div id="sop-list" class="sop-list" style="margin-top: 14px;"></div>
+        <div id="sop-drop" class="sop-drop">
+          Drag files here, or click <b>+ Upload</b> above.
+          <div class="sop-drop-sub">Stored in your Apps Script's Drive folder. Max 30 MB per file.</div>
+        </div>
+      </section>
+    </section>
+
   </main>
 </div>
 
@@ -1551,7 +1616,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-06.cheap-scans';
+  const BUILD_VERSION = '2026-05-06.sops';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -1631,6 +1696,172 @@
   function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     schedulePushToCloud();
+  }
+
+  // ---------- SOPs (Drive folder via Apps Script) ----------
+  // Files live in the script-owner's Drive in folder
+  // 'apex-dashboard-sops'. Same Apps Script URL + Secret already used
+  // for Gmail Sync / Cloud Sync gates access. Drive scope was already
+  // granted when the user ran enableCloudSync.
+
+  function setSopStatus(text, kind) {
+    const el = document.getElementById('sop-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+
+  function fmtBytes(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(2) + ' MB';
+  }
+
+  function _sopExt(name, mime) {
+    const m = (name || '').match(/\.([a-z0-9]{1,6})$/i);
+    if (m) return m[1].toUpperCase();
+    if (!mime) return '';
+    if (mime.indexOf('pdf') !== -1) return 'PDF';
+    if (mime.indexOf('image') !== -1) return 'IMG';
+    if (mime.indexOf('word') !== -1) return 'DOC';
+    return mime.split('/')[1] ? mime.split('/')[1].slice(0, 4).toUpperCase() : '';
+  }
+
+  async function loadSops(opts) {
+    opts = opts || {};
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      setSopStatus('Background Sync URL + Secret are required (Gmail Sync → Background Sync). Then reopen this view.', 'error');
+      return;
+    }
+    if (!opts.silent) setSopStatus('Loading…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=sops-list&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      renderSopList(data.files || []);
+      const folder = document.getElementById('sop-folder-link');
+      if (folder && data.folderUrl) { folder.href = data.folderUrl; folder.hidden = false; }
+      setSopStatus((data.files || []).length + ' file(s) in shared SOP folder.', 'ok');
+    } catch (e) {
+      setSopStatus('Load failed: ' + e.message, 'error');
+    }
+  }
+
+  function renderSopList(files) {
+    const root = document.getElementById('sop-list');
+    if (!root) return;
+    document.getElementById('sop-count').textContent = files.length;
+    root.innerHTML = '';
+    if (!files.length) return;
+    for (const f of files) {
+      const div = document.createElement('div');
+      div.className = 'sop-row';
+      const updated = f.updated ? new Date(f.updated).toLocaleString() : '—';
+      div.innerHTML =
+        '<div class="sop-icon">' + _sopExt(f.name, f.mimeType) + '</div>' +
+        '<div>' +
+          '<div class="sop-name">' + escapeHtml(f.name) + '</div>' +
+          '<div class="sop-meta">' + fmtBytes(f.size) + '  ·  updated ' + updated + '</div>' +
+        '</div>' +
+        '<button class="btn-ghost btn-sm" data-sop-download="' + escapeAttr(f.id) + '" data-sop-name="' + escapeAttr(f.name) + '">Download</button>' +
+        '<button class="icon-btn danger" data-sop-del="' + escapeAttr(f.id) + '" title="Delete">×</button>';
+      root.appendChild(div);
+    }
+  }
+
+  async function uploadSopFile(file) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) { setSopStatus('Configure Background Sync URL + Secret first.', 'error'); return; }
+    setSopStatus('Uploading ' + file.name + ' (' + fmtBytes(file.size) + ')…', 'busy');
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onerror = () => reject(new Error('read error'));
+        r.onload = () => {
+          const s = String(r.result || '');
+          const i = s.indexOf(',');
+          resolve(i === -1 ? s : s.slice(i + 1));
+        };
+        r.readAsDataURL(file);
+      });
+      const body = new URLSearchParams({
+        action: 'sops-upload',
+        token: secret,
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        base64: b64
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      showToast('Uploaded', file.name + ' · ' + fmtBytes(file.size), 'ok');
+      loadSops({ silent: true });
+    } catch (e) {
+      setSopStatus('Upload failed: ' + e.message, 'error');
+      showToast('Upload failed', e.message, 'error');
+    }
+  }
+
+  async function downloadSopFile(id, name) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    setSopStatus('Downloading ' + name + '…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=sops-download&token=' + encodeURIComponent(secret) +
+        '&id=' + encodeURIComponent(id),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      // Decode base64 → blob → trigger download
+      const bin = atob(data.base64 || '');
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const blob = new Blob([arr], { type: data.mimeType || 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = data.name || name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      setSopStatus('Downloaded ' + (data.name || name) + '.', 'ok');
+    } catch (e) {
+      setSopStatus('Download failed: ' + e.message, 'error');
+    }
+  }
+
+  async function deleteSopFile(id) {
+    if (!confirm('Delete this SOP? It will be moved to the Drive trash.')) return;
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    setSopStatus('Deleting…', 'busy');
+    try {
+      const body = new URLSearchParams({
+        action: 'sops-delete', token: secret, id: id
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      loadSops({ silent: true });
+    } catch (e) {
+      setSopStatus('Delete failed: ' + e.message, 'error');
+    }
   }
 
   // ---------- Cloud Sync (shared team mode) ----------
@@ -3109,7 +3340,7 @@
   if (_name && !_name.value && !state.activeSession) _name.value = 'Anne';
 
   // View routing
-  const validViews = ['applications', 'timesheet', 'insights', 'sync', 'jobsearch'];
+  const validViews = ['applications', 'timesheet', 'insights', 'sync', 'jobsearch', 'sops'];
   function setView(name) {
     if (!validViews.includes(name)) name = 'applications';
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
@@ -3117,6 +3348,7 @@
     if (history.replaceState) history.replaceState(null, '', '#' + name);
     if (name === 'insights') renderInsights();
     if (name === 'sync') renderSyncStatus();
+    if (name === 'sops') loadSops({ silent: false });
   }
   document.querySelectorAll('.nav-link').forEach(l => {
     l.addEventListener('click', function (e) {
@@ -4364,6 +4596,48 @@
       if (b) b.hidden = true;
     });
   })();
+
+  // ---- SOP wiring ----
+  const sopUploadBtn = document.getElementById('sop-upload-btn');
+  const sopFileInput = document.getElementById('sop-file-input');
+  const sopRefreshBtn = document.getElementById('sop-refresh-btn');
+  const sopList = document.getElementById('sop-list');
+  const sopDrop = document.getElementById('sop-drop');
+
+  if (sopUploadBtn && sopFileInput) {
+    sopUploadBtn.addEventListener('click', () => sopFileInput.click());
+    sopFileInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      for (const f of files) await uploadSopFile(f);
+      e.target.value = '';
+    });
+  }
+  if (sopRefreshBtn) sopRefreshBtn.addEventListener('click', () => loadSops({ silent: false }));
+  if (sopList) sopList.addEventListener('click', (e) => {
+    const dl = e.target.closest('[data-sop-download]');
+    if (dl) { downloadSopFile(dl.dataset.sopDownload, dl.dataset.sopName || 'sop'); return; }
+    const del = e.target.closest('[data-sop-del]');
+    if (del) { deleteSopFile(del.dataset.sopDel); return; }
+  });
+  // Drag-and-drop on the drop zone
+  if (sopDrop) {
+    ['dragenter', 'dragover'].forEach(evt => {
+      sopDrop.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        sopDrop.classList.add('drag');
+      });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      sopDrop.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        sopDrop.classList.remove('drag');
+      });
+    });
+    sopDrop.addEventListener('drop', async (e) => {
+      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+      for (const f of files) await uploadSopFile(f);
+    });
+  }
 
   (async function applySetupHash() {
     const hash = location.hash || '';
