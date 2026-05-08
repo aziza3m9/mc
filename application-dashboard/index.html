@@ -1045,6 +1045,46 @@
   }
   .sop-viewer-fallback b { color: var(--text); }
 
+  /* Sign modal — PDF on top, signature pad below */
+  .sop-viewer-card.sign-card { width: min(960px, 100%); height: min(880px, 100%); }
+  .sign-body {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    background: var(--bg);
+  }
+  .sign-pdf {
+    flex: 1; min-height: 200px;
+    background: #1f2937;
+    display: flex; align-items: stretch; justify-content: center;
+  }
+  .sign-pdf iframe { width: 100%; height: 100%; border: 0; background: white; }
+  .sign-pad-wrap {
+    border-top: 1px solid var(--border-strong);
+    padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    background: var(--panel);
+  }
+  .sign-pad-label {
+    font-size: 11px; color: var(--muted); letter-spacing: .12em;
+    text-transform: uppercase; font-weight: 700;
+  }
+  .sign-pad {
+    background: white; border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    width: 100%; max-width: 100%; height: 180px;
+    cursor: crosshair; touch-action: none;
+  }
+  .sign-pad-actions {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .sign-pad-actions input[type=text] {
+    flex: 1; min-width: 200px;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; font-family: inherit;
+  }
+  .sign-pad-buttons { display: flex; gap: 6px; }
+
   .js-pager {
     display: flex; align-items: center; justify-content: center; gap: 12px;
     margin-top: 14px; font-size: 12px; color: var(--muted);
@@ -1158,6 +1198,10 @@
     <a class="nav-link" data-view="sops" href="#sops">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       <span>SOPs</span>
+    </a>
+    <a class="nav-link" data-view="contracts" href="#contracts">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 17l1.5-3 2 4 1.5-3 1.5 2"/><circle cx="9" cy="13" r=".5" fill="currentColor"/></svg>
+      <span>Contracts</span>
     </a>
   </nav>
 
@@ -1615,7 +1659,61 @@
       </section>
     </section>
 
+    <!-- VIEW: CONTRACTS -->
+    <section class="view" id="view-contracts">
+      <header class="app-head">
+        <div>
+          <h1>Contracts</h1>
+          <div class="subtitle">Upload PDFs, sign them inline, view signed copies — stored in your Apps Script's Drive folder.</div>
+        </div>
+        <button class="btn-primary" id="contract-upload-btn">+ Upload</button>
+        <input type="file" id="contract-file-input" hidden multiple accept="application/pdf,.pdf,image/*" />
+      </header>
+
+      <section class="panel">
+        <h2>Files <span class="count" id="contract-count">—</span></h2>
+        <div id="contract-status" class="sync-status">Background Sync URL + Secret are required (Gmail Sync → Background Sync). Then click Refresh.</div>
+        <div class="sync-actions" style="margin-top: 10px;">
+          <button class="btn-ghost btn-sm" id="contract-refresh-btn">Refresh list</button>
+          <a class="btn-ghost btn-sm" id="contract-folder-link" target="_blank" rel="noopener" hidden>Open Drive folder ↗</a>
+        </div>
+        <div id="contract-list" class="sop-list" style="margin-top: 14px;"></div>
+        <div id="contract-drop" class="sop-drop">
+          Drag PDFs here, or click <b>+ Upload</b> above.
+          <div class="sop-drop-sub">Click <b>Sign</b> on any PDF row to draw a signature and save a signed copy. Max 30 MB per file.</div>
+        </div>
+      </section>
+    </section>
+
   </main>
+</div>
+
+<!-- Contract sign modal: PDF preview + signature pad + Apply -->
+<div id="contract-sign" class="sop-viewer-overlay" hidden>
+  <div class="sop-viewer-card sign-card" role="dialog" aria-modal="true" aria-labelledby="sign-title">
+    <div class="sop-viewer-head">
+      <div class="sop-viewer-title" id="sign-title">Sign contract</div>
+      <div class="sop-viewer-actions">
+        <button class="icon-btn" id="sign-close" aria-label="Close">×</button>
+      </div>
+    </div>
+    <div class="sign-body">
+      <div class="sign-pdf" id="sign-pdf"></div>
+      <div class="sign-pad-wrap">
+        <div class="sign-pad-label">Draw your signature below</div>
+        <canvas id="sign-pad" class="sign-pad" width="640" height="180"></canvas>
+        <div class="sign-pad-actions">
+          <input type="text" id="sign-name" placeholder="Typed name (optional, printed below signature)" autocomplete="off" />
+          <div class="sign-pad-buttons">
+            <button class="btn-ghost btn-sm" id="sign-clear">Clear</button>
+            <button class="btn-ghost btn-sm" id="sign-cancel">Cancel</button>
+            <button class="btn-primary btn-sm" id="sign-apply">Apply &amp; save signed copy</button>
+          </div>
+        </div>
+        <div class="sync-status" id="sign-status">Draw, then Apply. The signed copy is saved alongside the original with a "-signed" suffix.</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- SOP file viewer (PDFs / images render inline; other types fall back to download) -->
@@ -1685,7 +1783,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-06.sops-viewer';
+  const BUILD_VERSION = '2026-05-06.contracts-sign';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2020,6 +2118,399 @@
       loadSops({ silent: true });
     } catch (e) {
       setSopStatus('Delete failed: ' + e.message, 'error');
+    }
+  }
+
+  // ---------- Contracts (Drive folder + inline signing) ----------
+  // Same shape as SOPs but a separate folder. Adds a Sign flow that
+  // uses pdf-lib (loaded on-demand from CDN) to stamp a signature
+  // image onto the PDF and saves the signed copy back as a new file
+  // with a '-signed' suffix.
+
+  function setContractStatus(text, kind) {
+    const el = document.getElementById('contract-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+
+  async function loadContracts(opts) {
+    opts = opts || {};
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      setContractStatus('Background Sync URL + Secret are required (Gmail Sync → Background Sync). Then reopen this view.', 'error');
+      return;
+    }
+    if (!opts.silent) setContractStatus('Loading…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=contracts-list&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      renderContractList(data.files || []);
+      const folder = document.getElementById('contract-folder-link');
+      if (folder && data.folderUrl) { folder.href = data.folderUrl; folder.hidden = false; }
+      setContractStatus((data.files || []).length + ' contract(s) in shared folder.', 'ok');
+    } catch (e) {
+      setContractStatus('Load failed: ' + e.message, 'error');
+    }
+  }
+
+  function renderContractList(files) {
+    const root = document.getElementById('contract-list');
+    if (!root) return;
+    document.getElementById('contract-count').textContent = files.length;
+    root.innerHTML = '';
+    if (!files.length) return;
+    for (const f of files) {
+      const div = document.createElement('div');
+      div.className = 'sop-row';
+      const updated = f.updated ? new Date(f.updated).toLocaleString() : '—';
+      const previewable = _sopPreviewable(f.name, f.mimeType);
+      const isPdf = (f.mimeType || '').indexOf('pdf') !== -1 || /\.pdf$/i.test(f.name);
+      const signedTag = f.signed
+        ? ' <span class="js-dup-badge" style="margin-left:8px;">SIGNED</span>'
+        : '';
+      const actions =
+        (previewable
+          ? '<button class="btn-primary btn-sm" data-contract-view="' + escapeAttr(f.id) + '" data-contract-name="' + escapeAttr(f.name) + '" data-contract-mime="' + escapeAttr(f.mimeType || '') + '">View</button>'
+          : '') +
+        (isPdf && !f.signed
+          ? '<button class="btn-ghost btn-sm" data-contract-sign="' + escapeAttr(f.id) + '" data-contract-name="' + escapeAttr(f.name) + '">Sign</button>'
+          : '') +
+        '<button class="btn-ghost btn-sm" data-contract-download="' + escapeAttr(f.id) + '" data-contract-name="' + escapeAttr(f.name) + '">Download</button>' +
+        '<button class="icon-btn danger" data-contract-del="' + escapeAttr(f.id) + '" title="Delete">×</button>';
+      div.innerHTML =
+        '<div class="sop-icon">' + _sopExt(f.name, f.mimeType) + '</div>' +
+        '<div>' +
+          '<div class="sop-name">' + escapeHtml(f.name) + signedTag + '</div>' +
+          '<div class="sop-meta">' + fmtBytes(f.size) + '  ·  updated ' + updated + '</div>' +
+        '</div>' +
+        '<div class="sop-actions">' + actions + '</div>';
+      root.appendChild(div);
+    }
+  }
+
+  async function uploadContractFile(file) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) { setContractStatus('Configure Background Sync URL + Secret first.', 'error'); return; }
+    setContractStatus('Uploading ' + file.name + ' (' + fmtBytes(file.size) + ')…', 'busy');
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onerror = () => reject(new Error('read error'));
+        r.onload = () => {
+          const s = String(r.result || '');
+          const i = s.indexOf(',');
+          resolve(i === -1 ? s : s.slice(i + 1));
+        };
+        r.readAsDataURL(file);
+      });
+      const body = new URLSearchParams({
+        action: 'contracts-upload', token: secret,
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        base64: b64
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      showToast('Uploaded', file.name + ' · ' + fmtBytes(file.size), 'ok');
+      loadContracts({ silent: true });
+    } catch (e) {
+      setContractStatus('Upload failed: ' + e.message, 'error');
+    }
+  }
+
+  async function downloadContractFile(id, name) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    setContractStatus('Downloading ' + name + '…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=contracts-download&token=' + encodeURIComponent(secret) +
+        '&id=' + encodeURIComponent(id),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      const bin = atob(data.base64 || '');
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const blob = new Blob([arr], { type: data.mimeType || 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = data.name || name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      setContractStatus('Downloaded.', 'ok');
+    } catch (e) {
+      setContractStatus('Download failed: ' + e.message, 'error');
+    }
+  }
+
+  async function viewContractFile(id, name, mimeType) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    setContractStatus('Opening ' + name + '…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=contracts-download&token=' + encodeURIComponent(secret) +
+        '&id=' + encodeURIComponent(id),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      const bin = atob(data.base64 || '');
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const blob = new Blob([arr], { type: data.mimeType || mimeType || 'application/octet-stream' });
+      const blobUrl = URL.createObjectURL(blob);
+      showSopViewer(data.name || name, data.mimeType || mimeType, blobUrl);
+      setContractStatus('Opened ' + (data.name || name) + '.', 'ok');
+    } catch (e) {
+      setContractStatus('Open failed: ' + e.message, 'error');
+    }
+  }
+
+  async function deleteContractFile(id) {
+    if (!confirm('Delete this contract? It will be moved to the Drive trash.')) return;
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    setContractStatus('Deleting…', 'busy');
+    try {
+      const body = new URLSearchParams({
+        action: 'contracts-delete', token: secret, id: id
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      loadContracts({ silent: true });
+    } catch (e) {
+      setContractStatus('Delete failed: ' + e.message, 'error');
+    }
+  }
+
+  // ---- Sign flow: open modal, draw signature, stamp into PDF ----
+
+  let _signCtx = null;        // pdf-lib + state for current signing session
+
+  function setSignStatus(text, kind) {
+    const el = document.getElementById('sign-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+
+  async function loadPdfLib() {
+    if (window.PDFLib) return window.PDFLib;
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js';
+      s.onload = () => resolve(window.PDFLib);
+      s.onerror = () => reject(new Error('pdf-lib failed to load — check your network'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function openSignModal(id, name) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) { setContractStatus('Configure Background Sync first.', 'error'); return; }
+    setContractStatus('Opening ' + name + ' for signing…', 'busy');
+    try {
+      // Fetch the PDF + load pdf-lib in parallel
+      const [r, PDFLib] = await Promise.all([
+        fetch(
+          url + (url.indexOf('?') === -1 ? '?' : '&') +
+          'action=contracts-download&token=' + encodeURIComponent(secret) +
+          '&id=' + encodeURIComponent(id),
+          { method: 'GET', mode: 'cors', cache: 'no-store' }
+        ),
+        loadPdfLib()
+      ]);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      const bin = atob(data.base64 || '');
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+      // Render the PDF preview in the sign modal
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const pdfHost = document.getElementById('sign-pdf');
+      pdfHost.innerHTML = '';
+      const ifr = document.createElement('iframe');
+      ifr.src = blobUrl;
+      ifr.title = name;
+      pdfHost.appendChild(ifr);
+
+      _signCtx = {
+        id: id,
+        origName: name,
+        bytes: bytes,
+        blobUrl: blobUrl,
+        PDFLib: PDFLib
+      };
+      setSignStatus('Draw a signature, then Apply.', 'ok');
+      document.getElementById('sign-title').textContent = 'Sign — ' + name;
+      document.getElementById('sign-name').value = '';
+      clearSignPad();
+      document.getElementById('contract-sign').hidden = false;
+      setContractStatus('Ready to sign.', 'ok');
+    } catch (e) {
+      setContractStatus('Open-for-sign failed: ' + e.message, 'error');
+    }
+  }
+
+  function closeSignModal() {
+    const m = document.getElementById('contract-sign');
+    if (m) m.hidden = true;
+    if (_signCtx && _signCtx.blobUrl) {
+      try { URL.revokeObjectURL(_signCtx.blobUrl); } catch (_) {}
+    }
+    _signCtx = null;
+    document.getElementById('sign-pdf').innerHTML = '';
+  }
+
+  // ----- Signature pad -----
+  function setupSignPad() {
+    const canvas = document.getElementById('sign-pad');
+    if (!canvas || typeof canvas.getContext !== 'function') return;
+    // Match canvas pixel size to displayed CSS size for crisp lines
+    const resize = () => {
+      const r = canvas.getBoundingClientRect();
+      canvas.width = Math.max(320, Math.floor(r.width));
+      canvas.height = 180;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#0a1124';
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+    };
+    resize();
+    let drawing = false, lastX = 0, lastY = 0, drew = false;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const pos = (e) => {
+      const r = canvas.getBoundingClientRect();
+      const t = (e.touches && e.touches[0]) || e;
+      return {
+        x: (t.clientX - r.left) * (canvas.width / r.width),
+        y: (t.clientY - r.top) * (canvas.height / r.height)
+      };
+    };
+    const start = (e) => { e.preventDefault(); drawing = true; const p = pos(e); lastX = p.x; lastY = p.y; };
+    const move = (e) => {
+      if (!drawing) return;
+      e.preventDefault();
+      const p = pos(e);
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+      lastX = p.x; lastY = p.y;
+      drew = true;
+    };
+    const end = () => { drawing = false; };
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    canvas.addEventListener('mouseup', end);
+    canvas.addEventListener('mouseleave', end);
+    canvas.addEventListener('touchstart', start, { passive: false });
+    canvas.addEventListener('touchmove', move, { passive: false });
+    canvas.addEventListener('touchend', end);
+    canvas._hasDrawing = () => drew;
+    canvas._reset = () => { drew = false; resize(); };
+  }
+  function clearSignPad() {
+    const canvas = document.getElementById('sign-pad');
+    if (canvas && canvas._reset) canvas._reset();
+  }
+
+  async function applySignature() {
+    const canvas = document.getElementById('sign-pad');
+    if (!_signCtx) return;
+    if (!canvas || !canvas._hasDrawing || !canvas._hasDrawing()) {
+      setSignStatus('Draw a signature first.', 'error');
+      return;
+    }
+    setSignStatus('Embedding signature into PDF…', 'busy');
+    try {
+      const PDFLib = _signCtx.PDFLib;
+      const pdfDoc = await PDFLib.PDFDocument.load(_signCtx.bytes);
+      const pngBytes = await fetch(canvas.toDataURL('image/png')).then(r => r.arrayBuffer());
+      const sigImage = await pdfDoc.embedPng(pngBytes);
+
+      // Place on the LAST page, bottom-right area (~35% width, 4cm from bottom)
+      const pages = pdfDoc.getPages();
+      const page = pages[pages.length - 1];
+      const { width, height } = page.getSize();
+      const sigWidth = width * 0.35;
+      const sigDims = sigImage.scale(sigWidth / sigImage.width);
+      const x = width - sigDims.width - 40;
+      const y = 90;
+      page.drawImage(sigImage, { x, y, width: sigDims.width, height: sigDims.height });
+      // Optional typed name beneath signature
+      const typedName = (document.getElementById('sign-name').value || '').trim();
+      const dateStr = new Date().toLocaleDateString();
+      const font = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
+      page.drawText(
+        (typedName ? typedName + '  ·  ' : '') + 'Signed ' + dateStr,
+        { x: x, y: y - 14, size: 9, font: font, color: PDFLib.rgb(0.13, 0.16, 0.22) }
+      );
+
+      const signedBytes = await pdfDoc.save();
+
+      // Upload as new file with -signed suffix
+      const origName = _signCtx.origName;
+      const baseName = origName.replace(/\.pdf$/i, '');
+      const newName = baseName + '-signed.pdf';
+      // Convert Uint8Array → base64 in chunks (avoid stack overflow on big files)
+      let bin = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < signedBytes.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, signedBytes.subarray(i, i + chunk));
+      }
+      const b64 = btoa(bin);
+
+      const url = (state.gmail.appsScriptUrl || '').trim();
+      const secret = (state.gmail.appsScriptSecret || '').trim();
+      const body = new URLSearchParams({
+        action: 'contracts-upload', token: secret,
+        name: newName, mimeType: 'application/pdf', base64: b64
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+
+      setSignStatus('✓ Saved ' + newName, 'ok');
+      showToast('Signed', newName, 'ok');
+      closeSignModal();
+      loadContracts({ silent: true });
+    } catch (e) {
+      console.error(e);
+      setSignStatus('Sign failed: ' + e.message, 'error');
     }
   }
 
@@ -3499,7 +3990,7 @@
   if (_name && !_name.value && !state.activeSession) _name.value = 'Anne';
 
   // View routing
-  const validViews = ['applications', 'timesheet', 'insights', 'sync', 'jobsearch', 'sops'];
+  const validViews = ['applications', 'timesheet', 'insights', 'sync', 'jobsearch', 'sops', 'contracts'];
   function setView(name) {
     if (!validViews.includes(name)) name = 'applications';
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
@@ -3508,6 +3999,7 @@
     if (name === 'insights') renderInsights();
     if (name === 'sync') renderSyncStatus();
     if (name === 'sops') loadSops({ silent: false });
+    if (name === 'contracts') loadContracts({ silent: false });
   }
   document.querySelectorAll('.nav-link').forEach(l => {
     l.addEventListener('click', function (e) {
@@ -4789,6 +5281,60 @@
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && sopViewerOverlay && !sopViewerOverlay.hidden) hideSopViewer();
+  });
+
+  // ---- Contracts wiring (mirror SOPs + Sign) ----
+  const contractUploadBtn = document.getElementById('contract-upload-btn');
+  const contractFileInput = document.getElementById('contract-file-input');
+  const contractRefreshBtn = document.getElementById('contract-refresh-btn');
+  const contractList = document.getElementById('contract-list');
+  const contractDrop = document.getElementById('contract-drop');
+
+  if (contractUploadBtn && contractFileInput) {
+    contractUploadBtn.addEventListener('click', () => contractFileInput.click());
+    contractFileInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      for (const f of files) await uploadContractFile(f);
+      e.target.value = '';
+    });
+  }
+  if (contractRefreshBtn) contractRefreshBtn.addEventListener('click', () => loadContracts({ silent: false }));
+  if (contractList) contractList.addEventListener('click', (e) => {
+    const view = e.target.closest('[data-contract-view]');
+    if (view) { viewContractFile(view.dataset.contractView, view.dataset.contractName || 'contract', view.dataset.contractMime || ''); return; }
+    const sign = e.target.closest('[data-contract-sign]');
+    if (sign) { openSignModal(sign.dataset.contractSign, sign.dataset.contractName || 'contract'); return; }
+    const dl = e.target.closest('[data-contract-download]');
+    if (dl) { downloadContractFile(dl.dataset.contractDownload, dl.dataset.contractName || 'contract'); return; }
+    const del = e.target.closest('[data-contract-del]');
+    if (del) { deleteContractFile(del.dataset.contractDel); return; }
+  });
+  if (contractDrop) {
+    ['dragenter', 'dragover'].forEach(evt => contractDrop.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation(); contractDrop.classList.add('drag');
+    }));
+    ['dragleave', 'drop'].forEach(evt => contractDrop.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation(); contractDrop.classList.remove('drag');
+    }));
+    contractDrop.addEventListener('drop', async (e) => {
+      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+      for (const f of files) await uploadContractFile(f);
+    });
+  }
+  // Sign modal wiring
+  setupSignPad();
+  const signClose = document.getElementById('sign-close');
+  if (signClose) signClose.addEventListener('click', closeSignModal);
+  const signCancel = document.getElementById('sign-cancel');
+  if (signCancel) signCancel.addEventListener('click', closeSignModal);
+  const signClear = document.getElementById('sign-clear');
+  if (signClear) signClear.addEventListener('click', () => { clearSignPad(); setSignStatus('Cleared.', 'ok'); });
+  const signApply = document.getElementById('sign-apply');
+  if (signApply) signApply.addEventListener('click', applySignature);
+  const signOverlay = document.getElementById('contract-sign');
+  if (signOverlay) signOverlay.addEventListener('click', (e) => { if (e.target === signOverlay) closeSignModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && signOverlay && !signOverlay.hidden) closeSignModal();
   });
   // Drag-and-drop on the drop zone
   if (sopDrop) {
