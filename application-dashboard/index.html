@@ -1862,7 +1862,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-scroll-top';
+  const BUILD_VERSION = '2026-05-08.sign-scroll-reset';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2533,6 +2533,11 @@
       // Render each PDF page as a canvas the user can click on.
       const pageInfos = await renderPdfPagesForSigning(bytes, pdfjs);
       _signPlacedFields = [];
+      // Force the scroll viewport back to the top of page 1 — without this,
+      // browsers can leave it scrolled mid-document (e.g. from auto-focus
+      // landing on the canvas's bounding box after async render).
+      const _signHost = document.getElementById('sign-pdf');
+      if (_signHost) _signHost.scrollTop = 0;
 
       _signCtx = {
         id: id,
