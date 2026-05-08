@@ -423,6 +423,9 @@ function doGet(e) {
   if (action === 'contracts-download') {
     return _json(downloadContract(params.id));
   }
+  if (action === 'applicants-list') {
+    return _json(listApplicants());
+  }
   // Default: results
   const cached = props.getProperty('LAST_SCAN');
   if (cached) return _json(JSON.parse(cached));
@@ -456,6 +459,15 @@ function doPost(e) {
   }
   if (params.action === 'contracts-delete') {
     return _json(deleteContract(params.id));
+  }
+  if (params.action === 'applicants-add') {
+    return _json(addApplicant(params));
+  }
+  if (params.action === 'applicants-update') {
+    return _json(updateApplicant(params.id, params));
+  }
+  if (params.action === 'applicants-delete') {
+    return _json(deleteApplicant(params.id));
   }
   return _json({ error: 'unknown action: ' + (params.action || '<none>') });
 }
@@ -696,6 +708,131 @@ function deleteContract(id) {
     const file = DriveApp.getFileById(id);
     if (!_fileInContractsFolder(file)) return { error: 'file not in Contracts folder' };
     file.setTrashed(true);
+    return { ok: true };
+  } catch (e) {
+    return { error: 'delete failed: ' + e.message };
+  }
+}
+
+// ---------- Applicants storage (Upwork via Zapier/Make webhook) --------
+// Inbound applicants from Upwork are POSTed by a Zap configured by the
+// user (trigger: "New Job Applicant on Upwork") to:
+//   <APPS_SCRIPT_URL>?action=applicants-add&token=<SECRET>
+// with form fields: name, jobTitle, rate, coverLetter, profileUrl,
+// appliedAt (optional, ISO), upworkId (optional, dedup key).
+// Stored as a JSON file in the script-owner's Drive — same access model
+// as the shared state file.
+
+const APPLICANTS_FILE_ID_KEY = 'APPLICANTS_FILE_ID';
+const APPLICANTS_FILE_NAME = 'apex-applicants.json';
+const APPLICANT_STATUSES = ['new', 'reviewing', 'interview', 'hired', 'rejected'];
+
+function getApplicantsFile_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(APPLICANTS_FILE_ID_KEY);
+  if (id) {
+    try { return DriveApp.getFileById(id); } catch (_) { /* gone */ }
+  }
+  const file = DriveApp.createFile(APPLICANTS_FILE_NAME, '{"items":[]}', 'application/json');
+  props.setProperty(APPLICANTS_FILE_ID_KEY, file.getId());
+  return file;
+}
+
+function _readApplicants() {
+  const file = getApplicantsFile_();
+  const raw = file.getBlob().getDataAsString() || '{}';
+  let data;
+  try { data = JSON.parse(raw); } catch (_) { data = {}; }
+  if (!Array.isArray(data.items)) data.items = [];
+  return data;
+}
+
+function _writeApplicants(data) {
+  getApplicantsFile_().setContent(JSON.stringify(data));
+}
+
+function _uid() {
+  return Utilities.getUuid();
+}
+
+function listApplicants() {
+  try {
+    const data = _readApplicants();
+    // Newest first
+    const items = (data.items || []).slice().sort((a, b) =>
+      String(b.appliedAt || b.receivedAt || '').localeCompare(String(a.appliedAt || a.receivedAt || ''))
+    );
+    return { items: items, count: items.length };
+  } catch (e) {
+    return { error: 'list failed: ' + e.message };
+  }
+}
+
+function addApplicant(params) {
+  try {
+    const data = _readApplicants();
+    const upworkId = (params.upworkId || '').toString().trim();
+    // Dedupe: if a Zap re-fires for the same Upwork applicant, update
+    // instead of inserting a duplicate.
+    if (upworkId) {
+      const existing = (data.items || []).find((a) => a.upworkId === upworkId);
+      if (existing) {
+        existing.name        = params.name || existing.name;
+        existing.jobTitle    = params.jobTitle || existing.jobTitle;
+        existing.rate        = params.rate || existing.rate;
+        existing.coverLetter = params.coverLetter || existing.coverLetter;
+        existing.profileUrl  = params.profileUrl || existing.profileUrl;
+        existing.appliedAt   = params.appliedAt || existing.appliedAt;
+        _writeApplicants(data);
+        return { ok: true, id: existing.id, dedup: true };
+      }
+    }
+    const id = _uid();
+    const now = new Date().toISOString();
+    data.items.push({
+      id: id,
+      source: 'upwork',
+      upworkId: upworkId || null,
+      name: (params.name || '').toString().trim() || 'Unknown',
+      jobTitle: (params.jobTitle || '').toString().trim(),
+      rate: (params.rate || '').toString().trim(),
+      coverLetter: (params.coverLetter || '').toString(),
+      profileUrl: (params.profileUrl || '').toString().trim(),
+      appliedAt: (params.appliedAt || now),
+      receivedAt: now,
+      status: 'new',
+      notes: ''
+    });
+    _writeApplicants(data);
+    return { ok: true, id: id };
+  } catch (e) {
+    return { error: 'add failed: ' + e.message };
+  }
+}
+
+function updateApplicant(id, params) {
+  if (!id) return { error: 'missing id' };
+  try {
+    const data = _readApplicants();
+    const item = (data.items || []).find((a) => a.id === id);
+    if (!item) return { error: 'not found' };
+    if (params.status && APPLICANT_STATUSES.indexOf(params.status) >= 0) item.status = params.status;
+    if (typeof params.notes === 'string') item.notes = params.notes;
+    _writeApplicants(data);
+    return { ok: true };
+  } catch (e) {
+    return { error: 'update failed: ' + e.message };
+  }
+}
+
+function deleteApplicant(id) {
+  if (!id) return { error: 'missing id' };
+  try {
+    const data = _readApplicants();
+    const before = data.items.length;
+    data.items = data.items.filter((a) => a.id !== id);
+    if (data.items.length === before) return { error: 'not found' };
+    _writeApplicants(data);
     return { ok: true };
   } catch (e) {
     return { error: 'delete failed: ' + e.message };
