@@ -1064,13 +1064,13 @@
     position: relative; background: white;
     box-shadow: 0 6px 18px rgba(0,0,0,.45);
     cursor: crosshair;
-    max-width: 100%; max-height: 100%;
+    width: min(100%, 820px);
     line-height: 0;
+    flex: 0 0 auto;
   }
   .sign-pdf-page canvas {
     display: block;
-    max-width: 100%; max-height: calc(96vh - 380px);
-    width: auto; height: auto;
+    width: 100%; height: auto;
   }
   .sign-pdf-field {
     position: absolute;
@@ -1859,7 +1859,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-css-fit';
+  const BUILD_VERSION = '2026-05-08.sign-full-page';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
