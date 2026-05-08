@@ -1887,7 +1887,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-date-chip';
+  const BUILD_VERSION = '2026-05-08.sign-stop-bubble';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2523,6 +2523,11 @@
     wrap.className = 'sign-pdf-field-wrap';
     wrap.style.left = displayX + 'px';
     wrap.style.top  = displayY + 'px';
+    // Defense-in-depth: any click landing inside the field wrap (input,
+    // remove button, picker icon, etc.) must NOT bubble to the page
+    // handler — otherwise typing into a field can spawn another field.
+    wrap.addEventListener('click', (e) => e.stopPropagation());
+    wrap.addEventListener('mousedown', (e) => e.stopPropagation());
     const input = document.createElement('input');
     input.type = _signNextType === 'date' ? 'date' : 'text';
     input.className = 'sign-pdf-field';
@@ -2583,6 +2588,8 @@
     // Anchor at the click point as the top-left of the signature box.
     wrap.style.left = displayX + 'px';
     wrap.style.top  = displayY + 'px';
+    wrap.addEventListener('click', (e) => e.stopPropagation());
+    wrap.addEventListener('mousedown', (e) => e.stopPropagation());
     const img = document.createElement('img');
     img.src = pad.toDataURL('image/png');
     img.style.width  = sigDispW + 'px';
