@@ -990,6 +990,61 @@
   .sop-drop b { color: var(--accent); }
   .sop-drop-sub { color: var(--muted); font-size: 11px; margin-top: 6px; }
 
+  /* SOP viewer — fullscreen modal that renders PDFs / images inline */
+  .sop-viewer-overlay {
+    position: fixed; inset: 0; z-index: 1100;
+    background: rgba(6,9,20,.92);
+    backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .sop-viewer-overlay[hidden] { display: none; }
+  .sop-viewer-card {
+    background: var(--panel);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px rgba(79,158,255,.18), 0 24px 60px rgba(0,0,0,.6);
+    width: min(1100px, 100%); height: min(860px, 100%);
+    display: flex; flex-direction: column;
+    position: relative; overflow: hidden;
+  }
+  .sop-viewer-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+    box-shadow: 0 0 12px rgba(79,158,255,.4);
+  }
+  .sop-viewer-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    gap: 12px;
+  }
+  .sop-viewer-title {
+    font-size: 13px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--text);
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sop-viewer-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+  .sop-viewer-body {
+    flex: 1; min-height: 0;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    overflow: auto;
+  }
+  .sop-viewer-body iframe,
+  .sop-viewer-body embed {
+    width: 100%; height: 100%; border: 0; background: white;
+  }
+  .sop-viewer-body img {
+    max-width: 100%; max-height: 100%; display: block;
+  }
+  .sop-viewer-fallback {
+    color: var(--muted); font-size: 13px; padding: 32px; text-align: center;
+    line-height: 1.5;
+  }
+  .sop-viewer-fallback b { color: var(--text); }
+
   .js-pager {
     display: flex; align-items: center; justify-content: center; gap: 12px;
     margin-top: 14px; font-size: 12px; color: var(--muted);
@@ -1563,6 +1618,20 @@
   </main>
 </div>
 
+<!-- SOP file viewer (PDFs / images render inline; other types fall back to download) -->
+<div id="sop-viewer" class="sop-viewer-overlay" hidden>
+  <div class="sop-viewer-card" role="dialog" aria-modal="true" aria-labelledby="sop-viewer-title">
+    <div class="sop-viewer-head">
+      <div class="sop-viewer-title" id="sop-viewer-title">—</div>
+      <div class="sop-viewer-actions">
+        <a class="btn-ghost btn-sm" id="sop-viewer-download" target="_blank" rel="noopener">Download</a>
+        <button class="icon-btn" id="sop-viewer-close" aria-label="Close">×</button>
+      </div>
+    </div>
+    <div class="sop-viewer-body" id="sop-viewer-body"></div>
+  </div>
+</div>
+
 <!-- Manual application entry modal -->
 <div id="add-modal" class="modal-overlay" hidden>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
@@ -1616,7 +1685,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-06.sops';
+  const BUILD_VERSION = '2026-05-06.sops-viewer';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -1756,6 +1825,15 @@
     }
   }
 
+  function _sopPreviewable(name, mimeType) {
+    const m = (mimeType || '').toLowerCase();
+    if (m.indexOf('pdf') !== -1) return true;
+    if (m.indexOf('image') !== -1) return true;
+    if (m.indexOf('text') !== -1) return true;
+    if (/\.(pdf|png|jpg|jpeg|gif|webp|svg|txt|md)$/i.test(name || '')) return true;
+    return false;
+  }
+
   function renderSopList(files) {
     const root = document.getElementById('sop-list');
     if (!root) return;
@@ -1766,15 +1844,96 @@
       const div = document.createElement('div');
       div.className = 'sop-row';
       const updated = f.updated ? new Date(f.updated).toLocaleString() : '—';
+      const previewable = _sopPreviewable(f.name, f.mimeType);
+      const actions =
+        (previewable
+          ? '<button class="btn-primary btn-sm" data-sop-view="' + escapeAttr(f.id) + '" data-sop-name="' + escapeAttr(f.name) + '" data-sop-mime="' + escapeAttr(f.mimeType || '') + '">View</button>'
+          : '') +
+        '<button class="btn-ghost btn-sm" data-sop-download="' + escapeAttr(f.id) + '" data-sop-name="' + escapeAttr(f.name) + '">Download</button>' +
+        '<button class="icon-btn danger" data-sop-del="' + escapeAttr(f.id) + '" title="Delete">×</button>';
       div.innerHTML =
         '<div class="sop-icon">' + _sopExt(f.name, f.mimeType) + '</div>' +
         '<div>' +
           '<div class="sop-name">' + escapeHtml(f.name) + '</div>' +
           '<div class="sop-meta">' + fmtBytes(f.size) + '  ·  updated ' + updated + '</div>' +
         '</div>' +
-        '<button class="btn-ghost btn-sm" data-sop-download="' + escapeAttr(f.id) + '" data-sop-name="' + escapeAttr(f.name) + '">Download</button>' +
-        '<button class="icon-btn danger" data-sop-del="' + escapeAttr(f.id) + '" title="Delete">×</button>';
+        '<div class="sop-actions">' + actions + '</div>';
       root.appendChild(div);
+    }
+  }
+
+  // Inline SOP viewer — pulls the file as base64 (same endpoint as
+  // download), turns it into a Blob URL, and renders inside an iframe
+  // (PDF / text) or img (image). Non-previewable types show a fallback
+  // with a Download button so the user isn't stuck.
+  let _sopViewerObjectURL = null;
+  function showSopViewer(name, mimeType, blobUrl) {
+    const modal = document.getElementById('sop-viewer');
+    const title = document.getElementById('sop-viewer-title');
+    const body  = document.getElementById('sop-viewer-body');
+    const dl    = document.getElementById('sop-viewer-download');
+    if (!modal || !body) return;
+    title.textContent = name;
+    body.innerHTML = '';
+    const m = (mimeType || '').toLowerCase();
+    if (m.indexOf('image') !== -1) {
+      const img = document.createElement('img');
+      img.src = blobUrl;
+      img.alt = name;
+      body.appendChild(img);
+    } else {
+      // PDFs / text / unknown — let the browser try in an iframe.
+      const ifr = document.createElement('iframe');
+      ifr.src = blobUrl;
+      ifr.title = name;
+      body.appendChild(ifr);
+    }
+    if (dl) {
+      dl.href = blobUrl;
+      dl.setAttribute('download', name);
+    }
+    // Track the URL so we can revoke it when the modal closes.
+    if (_sopViewerObjectURL) {
+      try { URL.revokeObjectURL(_sopViewerObjectURL); } catch (_) {}
+    }
+    _sopViewerObjectURL = blobUrl;
+    modal.hidden = false;
+  }
+  function hideSopViewer() {
+    const modal = document.getElementById('sop-viewer');
+    if (modal) modal.hidden = true;
+    if (_sopViewerObjectURL) {
+      try { URL.revokeObjectURL(_sopViewerObjectURL); } catch (_) {}
+      _sopViewerObjectURL = null;
+    }
+    const body = document.getElementById('sop-viewer-body');
+    if (body) body.innerHTML = '';
+  }
+
+  async function viewSopFile(id, name, mimeType) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    setSopStatus('Opening ' + name + '…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=sops-download&token=' + encodeURIComponent(secret) +
+        '&id=' + encodeURIComponent(id),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      const bin = atob(data.base64 || '');
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const blob = new Blob([arr], { type: data.mimeType || mimeType || 'application/octet-stream' });
+      const blobUrl = URL.createObjectURL(blob);
+      showSopViewer(data.name || name, data.mimeType || mimeType, blobUrl);
+      setSopStatus('Opened ' + (data.name || name) + '.', 'ok');
+    } catch (e) {
+      setSopStatus('Open failed: ' + e.message, 'error');
     }
   }
 
@@ -4614,10 +4773,22 @@
   }
   if (sopRefreshBtn) sopRefreshBtn.addEventListener('click', () => loadSops({ silent: false }));
   if (sopList) sopList.addEventListener('click', (e) => {
+    const view = e.target.closest('[data-sop-view]');
+    if (view) { viewSopFile(view.dataset.sopView, view.dataset.sopName || 'sop', view.dataset.sopMime || ''); return; }
     const dl = e.target.closest('[data-sop-download]');
     if (dl) { downloadSopFile(dl.dataset.sopDownload, dl.dataset.sopName || 'sop'); return; }
     const del = e.target.closest('[data-sop-del]');
     if (del) { deleteSopFile(del.dataset.sopDel); return; }
+  });
+  // Viewer modal close: × button, click outside the card, Escape key
+  const sopViewerOverlay = document.getElementById('sop-viewer');
+  const sopViewerClose = document.getElementById('sop-viewer-close');
+  if (sopViewerClose) sopViewerClose.addEventListener('click', hideSopViewer);
+  if (sopViewerOverlay) sopViewerOverlay.addEventListener('click', (e) => {
+    if (e.target === sopViewerOverlay) hideSopViewer();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sopViewerOverlay && !sopViewerOverlay.hidden) hideSopViewer();
   });
   // Drag-and-drop on the drop zone
   if (sopDrop) {
