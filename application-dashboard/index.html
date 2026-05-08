@@ -1887,7 +1887,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-click-place';
+  const BUILD_VERSION = '2026-05-08.sign-click-target-strict';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2497,8 +2497,11 @@
       // signature (when "Place signature here" is armed).
       // Coords are in display pixels relative to the wrap.
       wrap.addEventListener('click', (e) => {
-        if (e.target.closest('.sign-pdf-field-wrap')) return;
-        if (e.target.closest('.sign-pdf-sig-wrap')) return;
+        // Only drop a new field/signature when the click hit empty page
+        // background (the wrap or the rendered PDF canvas). Anything else
+        // — an existing field's input, its remove button, the placed
+        // signature overlay — must NOT spawn another field.
+        if (e.target !== wrap && e.target !== canvas) return;
         const r = wrap.getBoundingClientRect();
         const cx = e.clientX - r.left;
         const cy = e.clientY - r.top;
