@@ -1059,7 +1059,10 @@
     overflow: auto; padding: 12px;
   }
   .sign-pdf iframe { width: 100%; height: 100%; border: 0; background: white; }
-  .sign-pdf.pages { flex-direction: column; align-items: center; gap: 14px; }
+  .sign-pdf.pages {
+    flex-direction: column; align-items: center; justify-content: flex-start;
+    gap: 14px;
+  }
   .sign-pdf-page {
     position: relative; background: white;
     box-shadow: 0 6px 18px rgba(0,0,0,.45);
@@ -1859,7 +1862,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-full-page';
+  const BUILD_VERSION = '2026-05-08.sign-scroll-top';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
