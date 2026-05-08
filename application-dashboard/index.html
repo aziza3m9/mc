@@ -1004,7 +1004,13 @@
     border: 1px solid var(--border-strong);
     border-radius: 12px;
     box-shadow: 0 0 0 1px rgba(79,158,255,.18), 0 24px 60px rgba(0,0,0,.6);
-    width: min(1100px, 100%); height: min(860px, 100%);
+    width: min(1100px, 100%);
+    /* 100% of the overlay's content area uses the *layout* viewport on
+       mobile, which can exceed the visible area (browser chrome). Bound
+       it explicitly to dvh so the card top never gets clipped above the
+       fold. vh fallback for browsers without dvh support. */
+    height: min(860px, calc(100vh - 48px));
+    height: min(860px, calc(100dvh - 48px));
     display: flex; flex-direction: column;
     position: relative; overflow: hidden;
   }
@@ -1046,7 +1052,16 @@
   .sop-viewer-fallback b { color: var(--text); }
 
   /* Sign modal — PDF on top, signature pad below */
-  .sop-viewer-card.sign-card { width: min(960px, 100%); height: min(96vh, 1180px); }
+  .sop-viewer-card.sign-card {
+    width: min(960px, 100%);
+    /* Cap height by visible viewport so the card never overflows the
+       overlay's content area (100vh - 48px padding). 96vh did, which on
+       most viewports left the card's top edge clipped above the screen
+       and unreachable because the overlay doesn't scroll. dvh tracks
+       mobile dynamic chrome; vh is the fallback for older browsers. */
+    height: min(calc(100vh - 48px), 1180px);
+    height: min(calc(100dvh - 48px), 1180px);
+  }
   .sign-body {
     flex: 1; min-height: 0;
     display: flex; flex-direction: column;
@@ -1862,7 +1877,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-scroll-reset';
+  const BUILD_VERSION = '2026-05-08.modal-fits-viewport';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
