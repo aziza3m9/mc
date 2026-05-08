@@ -417,6 +417,12 @@ function doGet(e) {
   if (action === 'sops-download') {
     return _json(downloadSop(params.id));
   }
+  if (action === 'contracts-list') {
+    return _json(listContracts());
+  }
+  if (action === 'contracts-download') {
+    return _json(downloadContract(params.id));
+  }
   // Default: results
   const cached = props.getProperty('LAST_SCAN');
   if (cached) return _json(JSON.parse(cached));
@@ -444,6 +450,12 @@ function doPost(e) {
   }
   if (params.action === 'sops-delete') {
     return _json(deleteSop(params.id));
+  }
+  if (params.action === 'contracts-upload') {
+    return _json(uploadContract(params.name, params.mimeType, params.base64));
+  }
+  if (params.action === 'contracts-delete') {
+    return _json(deleteContract(params.id));
   }
   return _json({ error: 'unknown action: ' + (params.action || '<none>') });
 }
@@ -582,6 +594,107 @@ function deleteSop(id) {
   try {
     const file = DriveApp.getFileById(id);
     if (!_fileInSopFolder(file)) return { error: 'file not in SOP folder' };
+    file.setTrashed(true);
+    return { ok: true };
+  } catch (e) {
+    return { error: 'delete failed: ' + e.message };
+  }
+}
+
+// ---------- Contracts storage (Drive folder) -----------------------------
+// Same pattern as SOPs but in a separate folder so contracts and runbooks
+// don't clutter each other. Contract endpoints additionally support
+// 'contracts-replace' so the dashboard can upload a signed copy of an
+// existing contract.
+
+const CONTRACTS_FOLDER_ID_KEY = 'CONTRACTS_FOLDER_ID';
+const CONTRACTS_FOLDER_NAME = 'apex-dashboard-contracts';
+const CONTRACTS_MAX_BYTES = 30 * 1024 * 1024;
+
+function getContractsFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(CONTRACTS_FOLDER_ID_KEY);
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (_) {}
+  }
+  const folder = DriveApp.createFolder(CONTRACTS_FOLDER_NAME);
+  props.setProperty(CONTRACTS_FOLDER_ID_KEY, folder.getId());
+  return folder;
+}
+
+function _fileInContractsFolder(file) {
+  const folder = getContractsFolder_();
+  const parents = file.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === folder.getId()) return true;
+  }
+  return false;
+}
+
+function listContracts() {
+  try {
+    const folder = getContractsFolder_();
+    const it = folder.getFiles();
+    const out = [];
+    while (it.hasNext()) {
+      const f = it.next();
+      const name = f.getName();
+      out.push({
+        id:       f.getId(),
+        name:     name,
+        size:     f.getSize(),
+        mimeType: f.getMimeType(),
+        created:  f.getDateCreated().toISOString(),
+        updated:  f.getLastUpdated().toISOString(),
+        signed:   /-signed(\.[^.]+)?$/i.test(name)
+      });
+    }
+    out.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+    return { files: out, folderUrl: folder.getUrl() };
+  } catch (e) {
+    return { error: 'list failed: ' + e.message };
+  }
+}
+
+function uploadContract(name, mimeType, base64) {
+  if (!name || !base64) return { error: 'missing name or base64' };
+  try {
+    const bytes = Utilities.base64Decode(base64);
+    if (bytes.length > CONTRACTS_MAX_BYTES) {
+      return { error: 'file too large (>' + Math.round(CONTRACTS_MAX_BYTES / 1024 / 1024) + 'MB)' };
+    }
+    const blob = Utilities.newBlob(bytes, mimeType || 'application/octet-stream', name);
+    const file = getContractsFolder_().createFile(blob);
+    return {
+      ok: true, id: file.getId(), name: file.getName(),
+      size: file.getSize(), mimeType: file.getMimeType(),
+      updated: file.getLastUpdated().toISOString()
+    };
+  } catch (e) {
+    return { error: 'upload failed: ' + e.message };
+  }
+}
+
+function downloadContract(id) {
+  if (!id) return { error: 'missing id' };
+  try {
+    const file = DriveApp.getFileById(id);
+    if (!_fileInContractsFolder(file)) return { error: 'file not in Contracts folder' };
+    return {
+      name:     file.getName(),
+      mimeType: file.getMimeType(),
+      base64:   Utilities.base64Encode(file.getBlob().getBytes())
+    };
+  } catch (e) {
+    return { error: 'download failed: ' + e.message };
+  }
+}
+
+function deleteContract(id) {
+  if (!id) return { error: 'missing id' };
+  try {
+    const file = DriveApp.getFileById(id);
+    if (!_fileInContractsFolder(file)) return { error: 'file not in Contracts folder' };
     file.setTrashed(true);
     return { ok: true };
   } catch (e) {
