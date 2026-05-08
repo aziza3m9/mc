@@ -1085,6 +1085,24 @@
   }
   .sign-pad-buttons { display: flex; gap: 6px; }
 
+  /* Filled fields section in sign modal */
+  .sign-fields {
+    display: flex; flex-direction: column; gap: 8px;
+    padding-bottom: 8px; margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sign-presets { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .sign-presets-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
+  .sign-fields-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .sign-field-row {
+    display: grid; grid-template-columns: 0.9fr 1.4fr auto; gap: 8px; align-items: center;
+  }
+  .sign-field-row input {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; font-size: 12px; font-family: inherit;
+  }
+
   .js-pager {
     display: flex; align-items: center; justify-content: center; gap: 12px;
     margin-top: 14px; font-size: 12px; color: var(--muted);
@@ -1700,6 +1718,20 @@
     <div class="sign-body">
       <div class="sign-pdf" id="sign-pdf"></div>
       <div class="sign-pad-wrap">
+        <div class="sign-fields">
+          <div class="sign-pad-label">Other party fields (typed onto the PDF before signing)</div>
+          <div class="sign-presets">
+            <span class="sign-presets-lbl">Quick add:</span>
+            <button type="button" class="chip preset-chip" data-sign-field-preset="Full Legal Name">Full Legal Name</button>
+            <button type="button" class="chip preset-chip" data-sign-field-preset="Address">Address</button>
+            <button type="button" class="chip preset-chip" data-sign-field-preset="Country">Country</button>
+            <button type="button" class="chip preset-chip" data-sign-field-preset="Email">Email</button>
+            <button type="button" class="chip preset-chip" data-sign-field-preset="Phone / WhatsApp">Phone / WhatsApp</button>
+            <button type="button" class="chip preset-chip" data-sign-field-preset="">+ Custom</button>
+          </div>
+          <div id="sign-fields-list" class="sign-fields-list"></div>
+        </div>
+
         <div class="sign-pad-label">Draw your signature below</div>
         <canvas id="sign-pad" class="sign-pad" width="640" height="180"></canvas>
         <div class="sign-pad-actions">
@@ -1783,7 +1815,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-06.contracts-sign';
+  const BUILD_VERSION = '2026-05-06.contract-fields';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2374,6 +2406,7 @@
       document.getElementById('sign-title').textContent = 'Sign — ' + name;
       document.getElementById('sign-name').value = '';
       clearSignPad();
+      clearSignFields();
       document.getElementById('contract-sign').hidden = false;
       setContractStatus('Ready to sign.', 'ok');
     } catch (e) {
@@ -2442,6 +2475,43 @@
     canvas._hasDrawing = () => drew;
     canvas._reset = () => { drew = false; resize(); };
   }
+  // ---- Sign-modal filled fields ----
+  function addSignFieldRow(label) {
+    const list = document.getElementById('sign-fields-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'sign-field-row';
+    row.innerHTML =
+      '<input type="text" placeholder="Label (e.g. Full Legal Name)" data-sign-field-label value="' + escapeAttr(label || '') + '" />' +
+      '<input type="text" placeholder="Value" data-sign-field-value autocomplete="off" />' +
+      '<button class="icon-btn danger" data-sign-field-remove title="Remove">×</button>';
+    list.appendChild(row);
+    // Auto-focus the value input on add
+    setTimeout(() => {
+      const v = row.querySelector('[data-sign-field-value]');
+      if (v) v.focus();
+    }, 30);
+  }
+  function clearSignFields() {
+    const list = document.getElementById('sign-fields-list');
+    if (list) list.innerHTML = '';
+  }
+  function collectSignFields() {
+    const rows = document.querySelectorAll('#sign-fields-list .sign-field-row');
+    const out = [];
+    for (const row of rows) {
+      const lbl = row.querySelector('[data-sign-field-label]');
+      const val = row.querySelector('[data-sign-field-value]');
+      if (val && val.value.trim()) {
+        out.push({
+          label: ((lbl && lbl.value) || '').trim(),
+          value: val.value.trim()
+        });
+      }
+    }
+    return out;
+  }
+
   function clearSignPad() {
     const canvas = document.getElementById('sign-pad');
     if (canvas && canvas._reset) canvas._reset();
@@ -2469,14 +2539,34 @@
       const sigDims = sigImage.scale(sigWidth / sigImage.width);
       const x = width - sigDims.width - 40;
       const y = 90;
+      const font = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
+      const fontBold = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+      const ink = PDFLib.rgb(0.13, 0.16, 0.22);
+
+      // Draw filled fields stacked vertically above the signature.
+      const fields = collectSignFields();
+      if (fields.length) {
+        let fieldY = y + sigDims.height + 30; // first row above the signature
+        for (const f of fields) {
+          const lbl = f.label || '';
+          const val = f.value || '';
+          const lblText = lbl ? (lbl + ': ') : '';
+          const lblWidth = lblText ? fontBold.widthOfTextAtSize(lblText, 10) : 0;
+          if (lblText) {
+            page.drawText(lblText, { x: 50, y: fieldY, size: 10, font: fontBold, color: ink });
+          }
+          page.drawText(val, { x: 50 + lblWidth, y: fieldY, size: 10, font: font, color: ink });
+          fieldY += 16;
+        }
+      }
+
       page.drawImage(sigImage, { x, y, width: sigDims.width, height: sigDims.height });
       // Optional typed name beneath signature
       const typedName = (document.getElementById('sign-name').value || '').trim();
       const dateStr = new Date().toLocaleDateString();
-      const font = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
       page.drawText(
         (typedName ? typedName + '  ·  ' : '') + 'Signed ' + dateStr,
-        { x: x, y: y - 14, size: 9, font: font, color: PDFLib.rgb(0.13, 0.16, 0.22) }
+        { x: x, y: y - 14, size: 9, font: font, color: ink }
       );
 
       const signedBytes = await pdfDoc.save();
@@ -5331,6 +5421,16 @@
   if (signClear) signClear.addEventListener('click', () => { clearSignPad(); setSignStatus('Cleared.', 'ok'); });
   const signApply = document.getElementById('sign-apply');
   if (signApply) signApply.addEventListener('click', applySignature);
+  // Preset chips → add a row pre-labeled. Empty preset = blank custom row.
+  document.querySelectorAll('[data-sign-field-preset]').forEach(btn => {
+    btn.addEventListener('click', () => addSignFieldRow(btn.dataset.signFieldPreset || ''));
+  });
+  // Remove a field row (delegated from the list)
+  const signFieldsList = document.getElementById('sign-fields-list');
+  if (signFieldsList) signFieldsList.addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-sign-field-remove]');
+    if (rm) rm.closest('.sign-field-row').remove();
+  });
   const signOverlay = document.getElementById('contract-sign');
   if (signOverlay) signOverlay.addEventListener('click', (e) => { if (e.target === signOverlay) closeSignModal(); });
   document.addEventListener('keydown', (e) => {
