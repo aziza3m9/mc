@@ -1134,7 +1134,7 @@
   .sign-pad {
     background: white; border-radius: 8px;
     border: 1px solid var(--border-strong);
-    width: 100%; max-width: 100%; height: 110px;
+    width: 100%; max-width: 100%; height: 80px;
     cursor: crosshair; touch-action: none;
   }
   .sign-pad-actions {
@@ -1781,10 +1781,6 @@
     <div class="sign-body">
       <div class="sign-pdf" id="sign-pdf"></div>
       <div class="sign-pad-wrap">
-        <div class="sign-pad-label">
-          Click anywhere on the document above to drop a text field, then type.
-          <span class="sign-presets-lbl" style="margin-left: 6px;">Pre-label your next click:</span>
-        </div>
         <div class="sign-presets">
           <button type="button" class="chip preset-chip" data-sign-field-preset="">Free text</button>
           <button type="button" class="chip preset-chip" data-sign-field-preset="Full Legal Name">Full Legal Name</button>
@@ -1793,9 +1789,7 @@
           <button type="button" class="chip preset-chip" data-sign-field-preset="Email">Email</button>
           <button type="button" class="chip preset-chip" data-sign-field-preset="Phone / WhatsApp">Phone / WhatsApp</button>
         </div>
-
-        <div class="sign-pad-label">Draw your signature below (auto-placed bottom-right of last page)</div>
-        <canvas id="sign-pad" class="sign-pad" width="640" height="110"></canvas>
+        <canvas id="sign-pad" class="sign-pad" width="640" height="80"></canvas>
         <div class="sign-pad-actions">
           <input type="text" id="sign-name" placeholder="Typed name (optional, printed below signature)" autocomplete="off" />
           <div class="sign-pad-buttons">
@@ -1877,7 +1871,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.modal-fits-viewport';
+  const BUILD_VERSION = '2026-05-08.sign-tighter-pad';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2594,7 +2588,7 @@
     const resize = () => {
       const r = canvas.getBoundingClientRect();
       canvas.width = Math.max(320, Math.floor(r.width));
-      canvas.height = 110;
+      canvas.height = 80;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.fillStyle = 'white';
