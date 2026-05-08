@@ -534,6 +534,64 @@
   .setup-link-banner.error .setup-link-text { color: var(--red); }
   .setup-link-text { flex: 1; min-width: 240px; font-weight: 600; }
 
+  /* Applicants kanban board (Upwork via webhook) */
+  .applicants-board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .applicants-col {
+    background: var(--panel-2, var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px; min-height: 120px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .applicants-col h3 {
+    margin: 0; font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); font-weight: 700;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .applicant-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 12px; line-height: 1.4;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .applicant-card .ac-name { font-weight: 700; color: var(--text); font-size: 13px; }
+  .applicant-card .ac-meta { color: var(--muted); font-size: 11px; }
+  .applicant-card .ac-snippet {
+    color: var(--text); opacity: .8;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .applicant-card .ac-actions {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+  }
+  .applicant-card .ac-actions select {
+    flex: 1; min-width: 0;
+    background: var(--panel-2, var(--panel)); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 6px; font-size: 11px;
+  }
+  .applicant-card a.ac-profile {
+    font-size: 11px; color: var(--accent); text-decoration: none;
+  }
+  .applicant-card a.ac-profile:hover { text-decoration: underline; }
+  .setup-steps {
+    margin: 6px 0 0 18px; padding: 0;
+    color: var(--text); font-size: 13px; line-height: 1.55;
+  }
+  .setup-steps li { margin-bottom: 4px; }
+  .setup-steps code {
+    background: var(--panel-2, var(--panel));
+    border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 4px;
+    font-size: 11px;
+  }
+
   /* Build version stamp — bottom corner. Use to verify the loaded JS
      is current after a deploy. Hover to see the full build string. */
   .build-version {
@@ -1330,6 +1388,10 @@
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 17l1.5-3 2 4 1.5-3 1.5 2"/><circle cx="9" cy="13" r=".5" fill="currentColor"/></svg>
       <span>Contracts</span>
     </a>
+    <a class="nav-link" data-view="applicants" href="#applicants">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Applicants</span>
+    </a>
   </nav>
 
   <!-- ========== MAIN ========== -->
@@ -1812,6 +1874,46 @@
       </section>
     </section>
 
+    <!-- VIEW: APPLICANTS (Upwork via Zapier/Make webhook) -->
+    <section class="view" id="view-applicants">
+      <header class="app-head">
+        <div>
+          <h1>Applicants</h1>
+          <div class="subtitle">Inbound from Upwork via Zapier/Make. Each new applicant lands here automatically once your Zap is wired up.</div>
+        </div>
+        <button class="btn-ghost" id="applicants-setup-toggle">Webhook setup</button>
+      </header>
+
+      <section class="panel" id="applicants-setup" hidden>
+        <h2>Connect Upwork → Zapier/Make → this dashboard</h2>
+        <ol class="setup-steps">
+          <li>In Zapier (or Make/n8n), create a Zap with trigger <b>Upwork → New Job Applicant</b>.</li>
+          <li>For the action, pick <b>Webhooks → POST</b>.</li>
+          <li>Set the URL to your webhook below and method to <b>POST</b>, data type <b>Form</b>.</li>
+          <li>Map these fields from the Upwork trigger to the form body:
+            <code>token</code>, <code>action=applicants-add</code>,
+            <code>name</code>, <code>jobTitle</code>, <code>rate</code>,
+            <code>coverLetter</code>, <code>profileUrl</code>,
+            <code>appliedAt</code> (ISO), <code>upworkId</code> (dedup key).
+          </li>
+          <li>Turn the Zap on. New applicants will populate this view.</li>
+        </ol>
+        <div class="setup-link" style="margin-top: 10px;">
+          <span class="setup-link-text" id="applicants-webhook-url">Configure Background Sync URL + Secret first (Gmail Sync → Background Sync).</span>
+          <button class="btn-ghost btn-sm" id="applicants-webhook-copy">Copy</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="sync-actions" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <h2 style="margin:0;">Pipeline <span class="count" id="applicants-count">—</span></h2>
+          <div id="applicants-status" class="sync-status" style="margin-left:auto;">Idle.</div>
+          <button class="btn-ghost btn-sm" id="applicants-refresh-btn">Refresh</button>
+        </div>
+        <div id="applicants-board" class="applicants-board" style="margin-top: 14px;"></div>
+      </section>
+    </section>
+
   </main>
 </div>
 
@@ -1918,7 +2020,7 @@
   // is actually loaded in the browser. Surfaced in the bottom-right
   // .build-version stamp; if a teammate's value differs from yours,
   // they're on a stale cached page.
-  const BUILD_VERSION = '2026-05-08.sign-dup-drag';
+  const BUILD_VERSION = '2026-05-08.applicants-mvp';
   const SOURCE_LABELS = {
     linkedin:     'LinkedIn',
     indeed:       'Indeed',
@@ -2253,6 +2355,144 @@
       loadSops({ silent: true });
     } catch (e) {
       setSopStatus('Delete failed: ' + e.message, 'error');
+    }
+  }
+
+  // ---------- Applicants (Upwork via Zapier/Make webhook) ----------
+  // Zapier/Make POSTs new Upwork applicants to the Apps Script web app
+  // at action=applicants-add. We poll /applicants-list to render them
+  // and PATCH status via /applicants-update. Apps Script stores the
+  // list as a JSON file in Drive (apex-applicants.json).
+  const APPLICANT_COLUMNS = [
+    { key: 'new',        label: 'New' },
+    { key: 'reviewing',  label: 'Reviewing' },
+    { key: 'interview',  label: 'Interview' },
+    { key: 'hired',      label: 'Hired' },
+    { key: 'rejected',   label: 'Rejected' }
+  ];
+  function setApplicantsStatus(text, kind) {
+    const el = document.getElementById('applicants-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('error', 'ok', 'busy');
+    if (kind) el.classList.add(kind);
+  }
+  function renderApplicantsWebhookUrl() {
+    const el = document.getElementById('applicants-webhook-url');
+    if (!el) return;
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      el.textContent = 'Configure Background Sync URL + Secret first (Gmail Sync → Background Sync).';
+      return;
+    }
+    el.textContent = url + (url.indexOf('?') === -1 ? '?' : '&') +
+      'action=applicants-add&token=' + encodeURIComponent(secret);
+  }
+  async function loadApplicants(opts) {
+    opts = opts || {};
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) {
+      setApplicantsStatus('Background Sync URL + Secret are required (Gmail Sync → Background Sync).', 'error');
+      renderApplicants([]);
+      return;
+    }
+    if (!opts.silent) setApplicantsStatus('Loading…', 'busy');
+    try {
+      const r = await fetch(
+        url + (url.indexOf('?') === -1 ? '?' : '&') +
+        'action=applicants-list&token=' + encodeURIComponent(secret),
+        { method: 'GET', mode: 'cors', cache: 'no-store' }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      renderApplicants(data.items || []);
+      setApplicantsStatus((data.items || []).length + ' applicant(s).', 'ok');
+    } catch (e) {
+      setApplicantsStatus('Load failed: ' + e.message, 'error');
+    }
+  }
+  function renderApplicants(items) {
+    const board = document.getElementById('applicants-board');
+    if (!board) return;
+    document.getElementById('applicants-count').textContent = items.length;
+    const byStatus = {};
+    APPLICANT_COLUMNS.forEach(c => byStatus[c.key] = []);
+    for (const a of items) {
+      const s = byStatus[a.status] ? a.status : 'new';
+      byStatus[s].push(a);
+    }
+    board.innerHTML = '';
+    for (const col of APPLICANT_COLUMNS) {
+      const list = byStatus[col.key];
+      const colEl = document.createElement('div');
+      colEl.className = 'applicants-col';
+      const head = document.createElement('h3');
+      head.innerHTML = escapeHtml(col.label) + ' <span class="count">' + list.length + '</span>';
+      colEl.appendChild(head);
+      for (const a of list) colEl.appendChild(applicantCard(a));
+      board.appendChild(colEl);
+    }
+  }
+  function applicantCard(a) {
+    const card = document.createElement('div');
+    card.className = 'applicant-card';
+    const applied = a.appliedAt ? new Date(a.appliedAt) : (a.receivedAt ? new Date(a.receivedAt) : null);
+    const meta = [
+      a.jobTitle || '',
+      a.rate || '',
+      applied ? applied.toLocaleDateString() : ''
+    ].filter(Boolean).join(' · ');
+    const statusOpts = APPLICANT_COLUMNS.map(c =>
+      '<option value="' + c.key + '"' + (c.key === a.status ? ' selected' : '') + '>' + c.label + '</option>'
+    ).join('');
+    card.innerHTML =
+      '<div class="ac-name">' + escapeHtml(a.name || 'Unknown') + '</div>' +
+      '<div class="ac-meta">' + escapeHtml(meta) + '</div>' +
+      (a.coverLetter ? '<div class="ac-snippet">' + escapeHtml(a.coverLetter) + '</div>' : '') +
+      (a.profileUrl ? '<a class="ac-profile" href="' + escapeAttr(a.profileUrl) + '" target="_blank" rel="noopener">View on Upwork ↗</a>' : '') +
+      '<div class="ac-actions">' +
+        '<select data-applicant-status="' + escapeAttr(a.id) + '">' + statusOpts + '</select>' +
+        '<button class="icon-btn danger" data-applicant-del="' + escapeAttr(a.id) + '" title="Delete">×</button>' +
+      '</div>';
+    return card;
+  }
+  async function updateApplicantStatus(id, status) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    setApplicantsStatus('Updating…', 'busy');
+    try {
+      const body = new URLSearchParams({
+        action: 'applicants-update', token: secret, id: id, status: status
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      loadApplicants({ silent: true });
+    } catch (e) {
+      setApplicantsStatus('Update failed: ' + e.message, 'error');
+    }
+  }
+  async function deleteApplicantById(id) {
+    const url = (state.gmail.appsScriptUrl || '').trim();
+    const secret = (state.gmail.appsScriptSecret || '').trim();
+    if (!url || !secret) return;
+    if (!confirm('Delete this applicant?')) return;
+    try {
+      const body = new URLSearchParams({
+        action: 'applicants-delete', token: secret, id: id
+      });
+      const r = await fetch(url, { method: 'POST', mode: 'cors', body });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      loadApplicants({ silent: true });
+    } catch (e) {
+      setApplicantsStatus('Delete failed: ' + e.message, 'error');
     }
   }
 
@@ -4508,7 +4748,7 @@
   if (_name && !_name.value && !state.activeSession) _name.value = 'Anne';
 
   // View routing
-  const validViews = ['applications', 'timesheet', 'insights', 'sync', 'jobsearch', 'sops', 'contracts'];
+  const validViews = ['applications', 'timesheet', 'insights', 'sync', 'jobsearch', 'sops', 'contracts', 'applicants'];
   function setView(name) {
     if (!validViews.includes(name)) name = 'applications';
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
@@ -4518,6 +4758,7 @@
     if (name === 'sync') renderSyncStatus();
     if (name === 'sops') loadSops({ silent: false });
     if (name === 'contracts') loadContracts({ silent: false });
+    if (name === 'applicants') { renderApplicantsWebhookUrl(); loadApplicants({ silent: false }); }
   }
   document.querySelectorAll('.nav-link').forEach(l => {
     l.addEventListener('click', function (e) {
@@ -5837,6 +6078,36 @@
     contractDrop.addEventListener('drop', async (e) => {
       const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
       for (const f of files) await uploadContractFile(f);
+    });
+  }
+
+  // ---- Applicants wiring ----
+  const applicantsRefreshBtn = document.getElementById('applicants-refresh-btn');
+  if (applicantsRefreshBtn) applicantsRefreshBtn.addEventListener('click', () => loadApplicants({ silent: false }));
+  const applicantsSetupToggle = document.getElementById('applicants-setup-toggle');
+  if (applicantsSetupToggle) applicantsSetupToggle.addEventListener('click', () => {
+    const panel = document.getElementById('applicants-setup');
+    if (panel) { panel.hidden = !panel.hidden; if (!panel.hidden) renderApplicantsWebhookUrl(); }
+  });
+  const applicantsCopyBtn = document.getElementById('applicants-webhook-copy');
+  if (applicantsCopyBtn) applicantsCopyBtn.addEventListener('click', () => {
+    const el = document.getElementById('applicants-webhook-url');
+    const txt = (el && el.textContent) || '';
+    if (!txt || txt.indexOf('Configure') === 0) return;
+    navigator.clipboard.writeText(txt).then(
+      () => setApplicantsStatus('Webhook URL copied.', 'ok'),
+      () => setApplicantsStatus('Copy failed.', 'error')
+    );
+  });
+  const applicantsBoard = document.getElementById('applicants-board');
+  if (applicantsBoard) {
+    applicantsBoard.addEventListener('change', (e) => {
+      const sel = e.target.closest('[data-applicant-status]');
+      if (sel) updateApplicantStatus(sel.dataset.applicantStatus, sel.value);
+    });
+    applicantsBoard.addEventListener('click', (e) => {
+      const del = e.target.closest('[data-applicant-del]');
+      if (del) deleteApplicantById(del.dataset.applicantDel);
     });
   }
   // Sign modal wiring
