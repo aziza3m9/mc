@@ -20,6 +20,7 @@ cold-stack/
 │       ├── pitcher.md
 │       ├── checker.md
 │       └── mobile.md
+├── jobs/                 # job-application autopilot (Greenhouse/Lever/Ashby + writer)
 ├── inbox/                # internal Smartlead substitute (SMTP send + IMAP poll)
 ├── booking/              # internal Calendly substitute (.ics invites over SMTP)
 ├── .mcp.json             # MCP server config (only needed if you outgrow inbox/booking)

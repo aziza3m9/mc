@@ -1,0 +1,44 @@
+{
+  "_comment": "Seed list of B2B SaaS companies known to hire SDRs/BDRs, indexed by ATS. Add your own; the slug is the company identifier in the ATS URL (boards.greenhouse.io/<slug>, jobs.lever.co/<slug>, jobs.ashbyhq.com/<slug>).",
+  "greenhouse": [
+    "vanta",
+    "webflow",
+    "retool",
+    "datadog",
+    "hashicorp",
+    "snyk",
+    "ramp",
+    "gusto",
+    "glassdoor",
+    "cbinsights",
+    "datagrail",
+    "blockchain",
+    "yipitdata",
+    "consumeredge",
+    "pixability",
+    "ergeon",
+    "fosphamarketing",
+    "seamlessai",
+    "orcasecurity",
+    "okta"
+  ],
+  "lever": [
+    "figma",
+    "notion",
+    "drata",
+    "attentive",
+    "ironcladhq",
+    "deel",
+    "lattice",
+    "intercom"
+  ],
+  "ashby": [
+    "linear",
+    "browserbase",
+    "replit",
+    "ramp",
+    "supabase",
+    "anthropic",
+    "openai"
+  ]
+}
