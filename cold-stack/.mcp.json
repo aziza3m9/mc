@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "smartlead": {
+      "command": "npx",
+      "args": ["-y", "@smartlead/mcp-server"],
+      "env": {
+        "SMARTLEAD_API_KEY": "${SMARTLEAD_API_KEY}"
+      }
+    },
+    "higgsfield": {
+      "command": "npx",
+      "args": ["-y", "@higgsfield/mcp-server"],
+      "env": {
+        "HIGGSFIELD_API_KEY": "${HIGGSFIELD_API_KEY}"
+      }
+    },
+    "calendly": {
+      "command": "npx",
+      "args": ["-y", "@calendly/mcp-server"],
+      "env": {
+        "CALENDLY_PAT": "${CALENDLY_PAT}"
+      }
+    },
+    "apollo": {
+      "command": "npx",
+      "args": ["-y", "@apollo/mcp-server"],
+      "env": {
+        "APOLLO_API_KEY": "${APOLLO_API_KEY}"
+      }
+    },
+    "linkedin": {
+      "command": "npx",
+      "args": ["-y", "@linkedin-sales/mcp-server"],
+      "env": {
+        "LINKEDIN_SESSION_COOKIE": "${LINKEDIN_SESSION_COOKIE}"
+      }
+    }
+  }
+}
