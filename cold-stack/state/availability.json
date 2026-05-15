@@ -1,0 +1,8 @@
+{
+  "bookings": [],
+  "buffer_minutes": 15,
+  "holds": [],
+  "slot_minutes": 30,
+  "tz": "America/New_York",
+  "windows": []
+}

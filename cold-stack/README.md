@@ -20,10 +20,13 @@ cold-stack/
 │       ├── pitcher.md
 │       ├── checker.md
 │       └── mobile.md
-├── .mcp.json             # MCP server config (Smartlead, Higgsfield, Calendly, Apollo, LinkedIn)
+├── inbox/                # internal Smartlead substitute (SMTP send + IMAP poll)
+├── booking/              # internal Calendly substitute (.ics invites over SMTP)
+├── .mcp.json             # MCP server config (only needed if you outgrow inbox/booking)
 ├── state/
 │   ├── queue.json        # leads waiting for the next stage
 │   ├── leases.json       # which agent currently holds which lead (prevents double-touch)
+│   ├── availability.json # operator free-busy windows for booking/
 │   ├── log.jsonl         # append-only event log
 │   └── README.md         # state schema
 └── clients/              # per-client artifacts (sample campaigns, looms, screenshots)
@@ -49,13 +52,19 @@ cold-stack/
 
 ## Running
 
-1. Configure MCP servers in `.mcp.json` (Smartlead, Higgsfield, Calendly,
-   Apollo, LinkedIn). Placeholders are provided.
+1. Seed state: `bash scripts/init.sh` creates empty queue/leases/log if
+   missing.
 2. `cd cold-stack` and start Claude Code. The orchestrator reads
    `CLAUDE.md` and discovers sub-agents from `.claude/agents/`.
-3. Seed state: `bash scripts/init.sh` creates empty queue/leases/log if
-   missing.
-4. Kick off a daily run: ask the orchestrator to "run today's sweep".
+3. **Send/book layer**: set the env vars in `inbox/README.md` (Gmail app
+   password or any SMTP/IMAP host) and you can send sequences with
+   `python -m inbox send-due`, detect replies with `python -m inbox
+   poll-replies`, and book calls with `python -m booking propose` /
+   `confirm`. No third-party SaaS required.
+4. **(Optional)** Configure MCP servers in `.mcp.json` (Smartlead,
+   Higgsfield, Calendly, Apollo, LinkedIn) when you outgrow
+   `inbox/` + `booking/`.
+5. Kick off a daily run: ask the orchestrator to "run today's sweep".
 
 ## Token budget
 

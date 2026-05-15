@@ -39,9 +39,15 @@ vertical for the day drops below 11%.
 
 You — and only you — write to:
 
-- `state/queue.json`, `state/leases.json`, `state/log.jsonl`
+- `state/queue.json`, `state/leases.json`, `state/log.jsonl`,
+  `state/availability.json`
 - `clients/<slug>/v<n>/` artifacts
-- Smartlead, Higgsfield, Calendly via write-side MCP tools
+- The internal send/book layer:
+  - `python -m inbox enqueue|send-due|poll-replies` (replaces Smartlead
+    for email)
+  - `python -m booking propose|confirm|release|list` (replaces Calendly)
+- Optionally Smartlead / Higgsfield / Calendly via write-side MCP tools
+  when the internal layer is outgrown.
 
 Sub-agents return text. You parse their output and persist it. After
 every state mutation, append one line to `state/log.jsonl` with
