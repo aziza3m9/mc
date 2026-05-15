@@ -1,4 +1,5 @@
-"""IMAP poll. Find replies, bounces, opt-outs; update queue accordingly."""
+"""IMAP poll across the inbox pool. Replies, bounces, opt-outs detected
+on whichever inbox they landed in."""
 from __future__ import annotations
 
 import email
@@ -7,9 +8,10 @@ import imaplib
 import re
 from datetime import datetime, timezone
 from email.message import Message
+from pathlib import Path
 from typing import Any
 
-from .config import Config
+from .pool import InboxConfig, load_pool, save_runtime
 from .queue import append_log, load_queue, save_queue
 
 _OPT_OUT_RE = re.compile(
@@ -54,7 +56,6 @@ def _referenced_ids(msg: Message) -> list[str]:
 
 
 def _find_lead(queue: dict[str, Any], refs: list[str]) -> tuple[str, int] | None:
-    """Match any referenced Message-ID to a lead's sent step."""
     for ref in refs:
         m = _OUR_MID_RE.match(ref)
         if m:
@@ -78,65 +79,74 @@ def _classify(msg: Message, body: str) -> str:
     return "reply"
 
 
-def poll_replies(cfg: Config, mailbox: str = "INBOX",
-                 mark_seen: bool = True) -> dict[str, int]:
-    """Walk UNSEEN messages, update queue. Returns counts by kind."""
-    counts = {"reply": 0, "bounce": 0, "opt_out": 0, "unmatched": 0}
-    queue = load_queue(cfg.state_dir)
+def _poll_one(inbox: InboxConfig, queue: dict[str, Any], state_dir: Path,
+              counts: dict[str, int], mark_seen: bool, mailbox: str) -> None:
+    try:
+        with imaplib.IMAP4_SSL(inbox.imap_host, inbox.imap_port, timeout=30) as imap:
+            imap.login(inbox.user, inbox.password)
+            imap.select(mailbox)
+            typ, data = imap.search(None, "UNSEEN")
+            if typ != "OK" or not data or not data[0]:
+                return
+            for num in data[0].split():
+                typ, payload = imap.fetch(num, "(RFC822)")
+                if typ != "OK":
+                    continue
+                raw = payload[0][1]
+                msg = email.message_from_bytes(raw, policy=email.policy.default)
+                match = _find_lead(queue, _referenced_ids(msg))
+                if match is None:
+                    counts["unmatched"] += 1
+                    if mark_seen:
+                        imap.store(num, "+FLAGS", "\\Seen")
+                    continue
+                lead_id, step_n = match
+                body = _body_text(msg)
+                kind = _classify(msg, body)
+                counts[kind] += 1
 
-    with imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port, timeout=30) as imap:
-        imap.login(cfg.user, cfg.password)
-        imap.select(mailbox)
-        typ, data = imap.search(None, "UNSEEN")
-        if typ != "OK" or not data or not data[0]:
-            return counts
+                lead = queue[lead_id]
+                send = lead.setdefault("send", {})
+                send.setdefault("replies", []).append({
+                    "ts": _now(),
+                    "in_reply_to_step": step_n,
+                    "from": msg.get("From"),
+                    "subject": msg.get("Subject"),
+                    "kind": kind,
+                    "inbox_id": inbox.id,
+                    "snippet": body[:500],
+                })
 
-        for num in data[0].split():
-            typ, payload = imap.fetch(num, "(RFC822)")
-            if typ != "OK":
-                continue
-            raw = payload[0][1]
-            msg = email.message_from_bytes(raw, policy=email.policy.default)
+                if kind == "reply":
+                    send["paused_for_reply"] = True
+                    lead["stage"] = "replied"
+                elif kind == "bounce":
+                    send["bounced"] = True
+                    lead["stage"] = "dead"
+                elif kind == "opt_out":
+                    send["opted_out"] = True
+                    lead["stage"] = "dead"
 
-            match = _find_lead(queue, _referenced_ids(msg))
-            if match is None:
-                counts["unmatched"] += 1
+                append_log(state_dir, "inbox", f"{kind}_received", lead_id,
+                           f"step {step_n} on inbox {inbox.id} from {msg.get('From')!r}")
                 if mark_seen:
                     imap.store(num, "+FLAGS", "\\Seen")
-                continue
+    except Exception as e:
+        print(f"POLL FAIL on {inbox.id}: {e}")
 
-            lead_id, step_n = match
-            body = _body_text(msg)
-            kind = _classify(msg, body)
-            counts[kind] += 1
 
-            lead = queue[lead_id]
-            send = lead.setdefault("send", {})
-            send.setdefault("replies", [])
-            send["replies"].append({
-                "ts": _now(),
-                "in_reply_to_step": step_n,
-                "from": msg.get("From"),
-                "subject": msg.get("Subject"),
-                "kind": kind,
-                "snippet": body[:500],
-            })
-
-            if kind == "reply":
-                send["paused_for_reply"] = True
-                lead["stage"] = "replied"
-            elif kind == "bounce":
-                send["bounced"] = True
-                lead["stage"] = "dead"
-            elif kind == "opt_out":
-                send["opted_out"] = True
-                lead["stage"] = "dead"
-
-            append_log(cfg.state_dir, "inbox", f"{kind}_received", lead_id,
-                       f"step {step_n} from {msg.get('From')!r}")
-
-            if mark_seen:
-                imap.store(num, "+FLAGS", "\\Seen")
-
-    save_queue(cfg.state_dir, queue)
+def poll_replies(state_dir: Path, mailbox: str = "INBOX",
+                 mark_seen: bool = True) -> dict[str, int]:
+    """Walk every inbox for UNSEEN messages and classify any matches."""
+    pool = load_pool(state_dir)
+    counts = {"reply": 0, "bounce": 0, "opt_out": 0, "unmatched": 0}
+    if not pool:
+        return counts
+    queue = load_queue(state_dir)
+    for inbox, _rt in pool:
+        if not inbox.enabled:
+            continue
+        _poll_one(inbox, queue, state_dir, counts, mark_seen, mailbox)
+    save_queue(state_dir, queue)
+    save_runtime(state_dir, pool)
     return counts
