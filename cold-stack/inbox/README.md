@@ -26,25 +26,29 @@ export IMAP_HOST=imap.gmail.com
 export IMAP_PORT=993
 ```
 
-### 3. Use it
+### 3. Run the autopilot (recommended)
+
+Open one terminal and start the loop. It sends and polls forever; you
+can walk away. No cron needed.
 
 ```bash
 cd cold-stack
+python -m inbox loop --interval 5
+# loop: tick every 5m. Ctrl-C to stop.
+# [2026-05-15T19:45:00Z] sent=0 poll={'reply': 0, 'bounce': 0, 'opt_out': 0, 'unmatched': 0}
+```
 
-# Push a Builder spec into the queue for a real prospect
-python -m inbox enqueue \
-  --lead-id ridgeway-logistics \
-  --to ops@ridgeway.example \
-  --from-spec clients/ridgeway-logistics/v1/spec.json
+Now in another terminal, ask the orchestrator (in Claude Code) to run a
+sweep. As Checker passes each lead, the orchestrator runs `enqueue`
+automatically. The loop picks them up on its next tick and sends.
 
-# Send any steps whose delay has elapsed (run via cron every 15m or so)
-python -m inbox send-due
-
-# Pull replies, classify as reply/bounce/opt-out, update queue
-python -m inbox poll-replies
-
-# What's going on
-python -m inbox status
+```bash
+# Manual commands (also available; the loop runs these internally)
+python -m inbox enqueue --lead-id ridgeway --to ops@ridgeway.example \
+    --from-spec clients/ridgeway/v1/spec.json
+python -m inbox send-due     # one-shot send
+python -m inbox poll-replies # one-shot poll
+python -m inbox status       # how many sent / replied / bounced
 ```
 
 ## How it stays threaded
@@ -68,12 +72,17 @@ straight from it.
 
 Every send and every detection appends one line to `state/log.jsonl`.
 
-## Cron
+## Cron (alternative to `loop`)
+
+If you prefer cron over the built-in loop, both forms work:
 
 ```cron
 */15 * * * * cd /path/to/cold-stack && /usr/bin/python3 -m inbox send-due >> ../inbox.log 2>&1
 */5  * * * * cd /path/to/cold-stack && /usr/bin/python3 -m inbox poll-replies >> ../inbox.log 2>&1
 ```
+
+Most people just run `python -m inbox loop` in `tmux` or `screen` and
+call it done.
 
 ## What this is NOT
 

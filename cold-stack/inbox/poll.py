@@ -84,7 +84,7 @@ def poll_replies(cfg: Config, mailbox: str = "INBOX",
     counts = {"reply": 0, "bounce": 0, "opt_out": 0, "unmatched": 0}
     queue = load_queue(cfg.state_dir)
 
-    with imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port) as imap:
+    with imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port, timeout=30) as imap:
         imap.login(cfg.user, cfg.password)
         imap.select(mailbox)
         typ, data = imap.search(None, "UNSEEN")

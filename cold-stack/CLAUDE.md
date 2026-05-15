@@ -65,22 +65,37 @@ Before invoking a sub-agent on a lead:
 
 ## Daily flow
 
+This runs end-to-end without human approval. The human is only woken on
+the two triggers in "Escalation format" below.
+
 1. **scout** sweeps ~240 companies → returns top 32 lead candidates.
 2. You persist the 32 to `state/queue.json` (stage: `diagnose`).
 3. **diagnoser** processes the 32 → returns 32 briefs + cold messages.
 4. You persist briefs, move top 4 to stage `build`.
 5. **builder** drafts sample campaigns for the top 4 → returns specs.
-6. You write specs to Smartlead via MCP and save mockups under
-   `clients/<slug>/v1/`.
+6. You save each spec to `clients/<slug>/v1/spec.json`.
 7. **filmer** renders a 45s Loom for each of the 4 → returns URLs.
 8. You save Loom URLs under each client folder.
 9. **checker** evaluates all 32 cold messages → returns pass/fail per
    message.
-10. **pitcher** sends only `checker:pass` messages on the right channel
-    per vertical.
-11. You log results, compute per-vertical reply rate at end of day.
-12. If any vertical's reply rate < 11% or a deal > $4,000 surfaces, stop
-    and ask the human.
+10. For every `checker:pass` lead in an email vertical (saas, healthtech,
+    consulting, ma), you immediately run:
+
+    ```bash
+    python -m inbox enqueue --lead-id <slug> --to <addr> \
+        --from-spec clients/<slug>/v1/spec.json
+    ```
+
+    You do NOT ask the human first. The send loop
+    (`python -m inbox loop`, running in another terminal) ships step 1
+    on its next tick.
+11. For logistics (SMS) and ecom (IG DM) leads, you stage them under
+    `state/queue.json` with `stage: pitch` and a TODO note — the
+    operator handles those manually until a channel sender is wired.
+12. You log every action to `state/log.jsonl`. At end of day you
+    compute per-vertical reply rate from the queue.
+13. If any vertical's reply rate < 11% or a deal > $4,000 surfaces,
+    THEN you stop and ask the human (per the escalation format below).
 
 ## Escalation format
 

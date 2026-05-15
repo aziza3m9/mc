@@ -2,6 +2,7 @@
 
   python -m inbox send-due [--dry-run]
   python -m inbox poll-replies [--leave-unread]
+  python -m inbox loop [--interval 5]
   python -m inbox enqueue --lead-id ID --to addr --from-spec path.json
   python -m inbox status
 """
@@ -10,6 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import load
@@ -30,6 +33,31 @@ def cmd_poll(args: argparse.Namespace) -> int:
     counts = poll_replies(cfg, mark_seen=not args.leave_unread)
     print(json.dumps(counts))
     return 0
+
+
+def cmd_loop(args: argparse.Namespace) -> int:
+    """Run send-due + poll-replies forever. Use this instead of cron."""
+    cfg = load()
+    interval = max(60, args.interval * 60)
+    print(f"loop: tick every {args.interval}m. Ctrl-C to stop.", flush=True)
+    while True:
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        try:
+            n = send_due(cfg)
+        except Exception as e:
+            print(f"[{ts}] send error: {e}", file=sys.stderr, flush=True)
+            n = -1
+        try:
+            counts = poll_replies(cfg)
+        except Exception as e:
+            print(f"[{ts}] poll error: {e}", file=sys.stderr, flush=True)
+            counts = {}
+        print(f"[{ts}] sent={n} poll={counts}", flush=True)
+        try:
+            time.sleep(interval)
+        except KeyboardInterrupt:
+            print("\nstopped", flush=True)
+            return 0
 
 
 def cmd_enqueue(args: argparse.Namespace) -> int:
@@ -104,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
     s2 = sub.add_parser("poll-replies")
     s2.add_argument("--leave-unread", action="store_true")
     s2.set_defaults(func=cmd_poll)
+
+    sl = sub.add_parser("loop", help="run send + poll forever (no cron needed)")
+    sl.add_argument("--interval", type=int, default=5, help="minutes between ticks")
+    sl.set_defaults(func=cmd_loop)
 
     s3 = sub.add_parser("enqueue")
     s3.add_argument("--lead-id", required=True)

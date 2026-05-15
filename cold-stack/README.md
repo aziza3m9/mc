@@ -50,21 +50,36 @@ cold-stack/
   via MCP. It is invoked from the iPhone instance and operates on
   positive replies in the queue.
 
-## Running
+## Running (autopilot)
 
-1. Seed state: `bash scripts/init.sh` creates empty queue/leases/log if
-   missing.
-2. `cd cold-stack` and start Claude Code. The orchestrator reads
-   `CLAUDE.md` and discovers sub-agents from `.claude/agents/`.
-3. **Send/book layer**: set the env vars in `inbox/README.md` (Gmail app
-   password or any SMTP/IMAP host) and you can send sequences with
-   `python -m inbox send-due`, detect replies with `python -m inbox
-   poll-replies`, and book calls with `python -m booking propose` /
-   `confirm`. No third-party SaaS required.
-4. **(Optional)** Configure MCP servers in `.mcp.json` (Smartlead,
-   Higgsfield, Calendly, Apollo, LinkedIn) when you outgrow
-   `inbox/` + `booking/`.
-5. Kick off a daily run: ask the orchestrator to "run today's sweep".
+You need two terminals. Both pointed at `cold-stack/`.
+
+**Terminal 1 — send daemon.** Set Gmail creds (see `inbox/README.md`),
+then start the loop. It runs forever; sends due steps and polls for
+replies every 5 minutes.
+
+```bash
+bash scripts/init.sh                  # one-time
+python -m inbox loop --interval 5     # leave this running
+```
+
+**Terminal 2 — Claude Code.** Tell the orchestrator to run a sweep.
+As Checker passes each lead, the orchestrator auto-runs
+`python -m inbox enqueue` — no human approval. The loop in Terminal 1
+ships them on its next tick.
+
+```
+> run today's sweep on SaaS founders
+```
+
+Booking is the same pattern: when a positive reply lands, you (or the
+Mobile agent) run `python -m booking propose --lead-id X
+--prospect-tz Z`, paste the slots into a reply, and run `confirm` when
+the prospect picks one.
+
+**Optional**: configure MCP servers in `.mcp.json` (Smartlead,
+Higgsfield, Calendly, Apollo, LinkedIn) when you outgrow `inbox/` +
+`booking/`.
 
 ## Token budget
 
