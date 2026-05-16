@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  image         String?
+  accessToken   String?
+  refreshToken  String?
+  tokenExpires  DateTime?
+  createdAt     DateTime @default(now())
+
+  preferences   Preferences?
+  tasks         Task[]
+  habits        Habit[]
+  scheduled     ScheduledBlock[]
+}
+
+model Preferences {
+  id              String @id @default(cuid())
+  userId          String @unique
+  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Minutes since midnight, 0-1439. Per weekday: Sun=0..Sat=6
+  workStartMins   Int    @default(540)   // 9:00
+  workEndMins     Int    @default(1080)  // 18:00
+  workDaysMask    Int    @default(62)    // bits Mon-Fri => 0b0111110 = 62
+  focusBlockMins  Int    @default(60)    // protect at least this much focus per workday
+  timezone        String @default("UTC")
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  notes       String?
+  durationMins Int
+  minChunkMins Int     @default(30)
+  maxChunkMins Int     @default(120)
+  priority    String   @default("MEDIUM")  // LOW|MEDIUM|HIGH|URGENT
+  deadline    DateTime?
+  completed   Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  scheduled   ScheduledBlock[]
+}
+
+model Habit {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  // weekly target: how many sessions per week
+  perWeek     Int      @default(3)
+  durationMins Int     @default(30)
+  priority    String   @default("MEDIUM")
+  // window each day in minutes since midnight to allow placement
+  windowStartMins Int  @default(360)   // 06:00
+  windowEndMins   Int  @default(1320)  // 22:00
+
+  createdAt   DateTime @default(now())
+  scheduled   ScheduledBlock[]
+}
+
+// Persisted record of what we wrote to Google Calendar
+model ScheduledBlock {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId        String?
+  task          Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  habitId       String?
+  habit         Habit?   @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  googleEventId String?
+  start         DateTime
+  end           DateTime
+  createdAt     DateTime @default(now())
+}
