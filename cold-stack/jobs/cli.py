@@ -1,8 +1,9 @@
 """Job-application autopilot CLI.
 
-  python -m jobs find [--remote-only] [--allowed-loc detroit michigan]
-  python -m jobs draft [--limit N]
-  python -m jobs enqueue --lead-id ID
+  python -m jobs find [--no-remote] [--allowed-loc detroit michigan]
+  python -m jobs draft [--limit N] [--force]
+  python -m jobs loop [--interval-hours 6] [--allowed-loc ...]
+  python -m jobs enqueue --slug SLUG
   python -m jobs status
 
 Flow:
@@ -10,11 +11,13 @@ Flow:
      SDR/BDR/sales-dev titles in your acceptable locations, and writes
      them to state/jobs_open.json.
   2. `draft` reads jobs_open.json + state/applicant.json, writes a
-     personalized application email per job to
-     state/applications/<slug>__<job_id>/draft.md.
-  3. You read the drafts, edit any you want to change.
-  4. `enqueue` pushes one (or all) into state/queue.json as a single-step
-     send. The existing `inbox loop` ships them.
+     personalized application email per NEW job to
+     state/applications/<slug>__<job_id>/draft.md. Existing drafts are
+     skipped (your hand-edits are safe) unless --force.
+  3. `loop` runs find + draft on a timer so new postings show up
+     automatically. No cron needed.
+  4. You read the drafts, edit any you want.
+  5. `enqueue` pushes drafts into state/queue.json. `inbox loop` ships them.
 """
 from __future__ import annotations
 
@@ -23,6 +26,8 @@ import json
 import os
 import re
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .email_guesser import best_guess
@@ -82,14 +87,17 @@ def cmd_draft(args: argparse.Namespace) -> int:
     out_dir = state / "applications"
     out_dir.mkdir(parents=True, exist_ok=True)
     written = 0
+    skipped = 0
     for job in jobs:
-        email = write_email(job, applicant)
         slug = job["company_slug"]
+        d = out_dir / f"{_slug(slug)}__{_slug(job['id'])}"
+        if d.exists() and (d / "draft.md").exists() and not args.force:
+            skipped += 1
+            continue
+        email = write_email(job, applicant)
         domain = args.domain_map.get(slug) if args.domain_map else None
-        # default heuristic: <slug>.com (works for ~70% of companies)
         domain = domain or f"{slug}.com"
         to_address = best_guess(domain)
-        d = out_dir / f"{_slug(slug)}__{_slug(job['id'])}"
         d.mkdir(parents=True, exist_ok=True)
         (d / "draft.md").write_text(
             f"# {job['title']} @ {slug}\n\n"
@@ -107,13 +115,90 @@ def cmd_draft(args: argparse.Namespace) -> int:
             "to": to_address,
             "subject": email["subject"],
             "apply_url": job.get("apply_url", ""),
+            "drafted_at": datetime.now(timezone.utc).isoformat(),
         }, indent=2) + "\n")
         written += 1
         print(f"  drafted {slug} :: {job['title']}  →  {d.name}")
-    print(f"\nwrote {written} drafts → {out_dir}/")
-    print("\nNext: open the draft.md files. Edit any you want. Then:")
-    print(f"  python -m jobs enqueue --slug <company-slug>")
+    print(f"\nwrote {written} new drafts, skipped {skipped} existing → {out_dir}/")
+    if written:
+        print("\nNext: open the draft.md files. Edit any you want. Then:")
+        print(f"  python -m jobs enqueue --slug <company-slug>")
     return 0
+
+
+def cmd_loop(args: argparse.Namespace) -> int:
+    """Run find + draft on a timer. New SDR postings appear automatically."""
+    interval_seconds = max(60 * 30, int(args.interval_hours * 3600))
+    print(f"jobs loop: find + draft every {args.interval_hours}h. "
+          f"Ctrl-C to stop.", flush=True)
+    state = _state_dir()
+    tick = 0
+    while True:
+        tick += 1
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        print(f"\n[{ts}] tick {tick} — fetching jobs...", flush=True)
+        try:
+            jobs = fetch_all(_load_companies())
+            sdr = filter_jobs(
+                jobs,
+                remote_ok=not args.no_remote,
+                allowed_locations=args.allowed_loc or None,
+            )
+            (state / "jobs_open.json").write_text(
+                json.dumps(sdr, indent=2) + "\n")
+            print(f"  found {len(sdr)} SDR/BDR-shaped jobs across "
+                  f"{len(jobs)} total", flush=True)
+        except Exception as e:
+            print(f"  find error: {e}", file=sys.stderr, flush=True)
+            sdr = []
+
+        # Draft any new ones
+        if sdr:
+            applicant = load_applicant(state / "applicant.json")
+            out_dir = state / "applications"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            new = 0
+            for job in sdr:
+                slug = job["company_slug"]
+                d = out_dir / f"{_slug(slug)}__{_slug(job['id'])}"
+                if d.exists() and (d / "draft.md").exists():
+                    continue
+                try:
+                    email = write_email(job, applicant)
+                except Exception as e:
+                    print(f"  writer failed on {slug}: {e}", file=sys.stderr,
+                          flush=True)
+                    continue
+                domain = f"{slug}.com"
+                to_address = best_guess(domain)
+                d.mkdir(parents=True, exist_ok=True)
+                (d / "draft.md").write_text(
+                    f"# {job['title']} @ {slug}\n\n"
+                    f"**Apply URL:** {job.get('apply_url', '')}\n"
+                    f"**Location:** {job.get('location', '')}\n"
+                    f"**To (best guess):** `{to_address}`\n"
+                    f"**Subject:** {email['subject']}\n"
+                    f"**Word count:** {email['word_count']}\n"
+                    f"**JD matches:** {json.dumps(email['matches'])}\n\n"
+                    f"---\n\n{email['body']}\n"
+                )
+                (d / "meta.json").write_text(json.dumps({
+                    "company_slug": slug,
+                    "job_id": job["id"],
+                    "to": to_address,
+                    "subject": email["subject"],
+                    "apply_url": job.get("apply_url", ""),
+                    "drafted_at": datetime.now(timezone.utc).isoformat(),
+                }, indent=2) + "\n")
+                new += 1
+                print(f"  NEW: {slug} :: {job['title']}", flush=True)
+            print(f"  drafted {new} new application(s)", flush=True)
+
+        try:
+            time.sleep(interval_seconds)
+        except KeyboardInterrupt:
+            print("\nstopped", flush=True)
+            return 0
 
 
 def cmd_enqueue(args: argparse.Namespace) -> int:
@@ -202,9 +287,18 @@ def main(argv: list[str] | None = None) -> int:
 
     d = sub.add_parser("draft")
     d.add_argument("--limit", type=int, default=None)
+    d.add_argument("--force", action="store_true",
+                   help="overwrite existing drafts (including hand-edits)")
     d.add_argument("--domain-map", type=lambda s: json.loads(s), default={},
                    help='JSON map of slug→domain, e.g. \'{"cbinsights":"cbinsights.com"}\'')
     d.set_defaults(func=cmd_draft)
+
+    l = sub.add_parser("loop", help="find + draft automatically on a timer")
+    l.add_argument("--interval-hours", type=float, default=6,
+                   help="hours between full sweeps (min 0.5)")
+    l.add_argument("--no-remote", action="store_true")
+    l.add_argument("--allowed-loc", nargs="*", default=None)
+    l.set_defaults(func=cmd_loop)
 
     e = sub.add_parser("enqueue")
     e.add_argument("--slug", default=None,
